@@ -1522,9 +1522,12 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
      */
 #ifndef OPENSSL_NO_SECH
     /* Get the length of the Client Hello Inner SNI */
+    OSSL_TRACE_BEGIN(TLS) {
+        BIO_printf(trc_out, "SECH: ext.hostname %s\n", s->ext.hostname);
+    } OSSL_TRACE_END(TLS);
     int inner_sni_length = strlen(s->ext.hostname);
 
-    /* Create unsafe IV */
+    /* TODO insecure IV */
     unsigned char iv[12] = {
         0, 0, 0, 0,
         0, 0, 0, 0,
@@ -1537,7 +1540,8 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
         inner_sni_length,
         &iv,
         (unsigned char *)s->sech.symmetric_key,
-        SECH_SYMMETRIC_KEY_MAX_LENGTH,
+	s->sech.symmetric_key_len,
+        // SECH_SYMMETRIC_KEY_MAX_LENGTH,
         &inner_sni_length);
 
     /* Hide the ESNI, its length, and the IV in the ClientRandom */
@@ -1548,6 +1552,19 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
     for(int i = 20; i < SSL3_RANDOM_SIZE; i++) {
         p[i] = iv[i - 20]; 
     }
+
+    fprintf(stderr, "SECH: random sni length %i\n", inner_sni_length);
+    fprintf(stderr, "SECH: random encrypted sni\n", inner_sni_length);
+    BIO_dump_fp(stderr, encrypted_sni, inner_sni_length);
+    fprintf(stderr, "SECH: random iv\n", inner_sni_length);
+    BIO_dump_fp(stderr, iv, 12);
+    fprintf(stderr, "SECH: random key\n");
+    BIO_dump_fp(stderr, s->sech.symmetric_key, strlen(s->sech.symmetric_key));
+    fprintf(stderr, "SECH: random\n");
+    BIO_dump_fp(stderr, p, SSL3_RANDOM_SIZE);
+
+    fprintf(stderr, "SECH: random cleartext");
+    BIO_dump_fp(stderr, s->ext.hostname, inner_sni_length);
 
     if (!WPACKET_put_bytes_u16(pkt, s->client_version)
             || !WPACKET_memcpy(pkt, encrypted_sni, SSL3_RANDOM_SIZE)) {

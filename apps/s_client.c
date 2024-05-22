@@ -2145,7 +2145,7 @@ int s_client_main(int argc, char **argv)
     if(sech_symmetric_key != NULL) {
         SSL_CTX_sech_symmetric_key(ctx, sech_symmetric_key);
     }
-#endif //OPENSSL_NO_ECH
+#endif//OPENSSL_NO_ECH
 
     SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
 

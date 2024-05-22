@@ -2321,7 +2321,7 @@ int s_server_main(int argc, char *argv[])
         goto end;
     }
 #ifndef OPENSSL_NO_SECH
-    if(!(sech_symmetric_key == NULL)) {
+    if(sech_symmetric_key != NULL) {
         SSL_CTX_sech_symmetric_key(ctx, sech_symmetric_key);
     }
 #endif//OPENSSL_NO_SECH
