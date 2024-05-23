@@ -1848,7 +1848,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
     s->ext.hostname = unsafe_decrypt_aes128gcm(
         encrypted_sni,
         sni_length,
-        &iv,
+        iv,
         (unsigned char *)s->sech.symmetric_key,
 	s->sech.symmetric_key_len,
         // SECH_SYMMETRIC_KEY_MAX_LENGTH,

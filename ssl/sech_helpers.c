@@ -11,8 +11,7 @@
  * Internal data structures and prototypes for handling
  * stealthy Encrypted ClientHello (SECH)
  */
-#ifndef OPENSSL_NO_ECH
-#define SECH_SYMMETRIC_KEY_MAX_LENGTH 1024
+#ifndef OPENSSL_NO_SECH
 // int sech_function_definition_to_find(void);
 #include <stdio.h>
 #include <openssl/crypto.h>
@@ -23,7 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <openssl/trace.h>
-
+#include "sech_local.h"
 OSSL_LIB_CTX *libctx = NULL;
 const char *propq = NULL;
 
@@ -234,4 +233,4 @@ char *unsafe_decrypt_aes128gcm(
     *out_len = len;
     return ret;
 }
-#endif
+#endif//OPENSSL_NO_SECH

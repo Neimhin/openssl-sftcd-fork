@@ -979,6 +979,7 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
             goto err;
     memcpy(s->sech.symmetric_key, ctx->sech.symmetric_key, SECH_SYMMETRIC_KEY_MAX_LENGTH);
     s->sech.symmetric_key_len = ctx->sech.symmetric_key_len;
+    s->sech.version = ctx->sech.version;
 #endif
     return ssl;
  cerr:

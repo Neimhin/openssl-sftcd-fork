@@ -1,1 +1,1 @@
-./config -DSECH_DEBUG enable-ssl-trace enable-trace --debug; make clean; make -j8
+./config -DSECH_DEBUG -DOPENSSL_NO_ECH enable-ssl-trace enable-trace --debug; make clean; make -j8

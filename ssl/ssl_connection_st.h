@@ -478,6 +478,7 @@ struct ssl_connection_st {
     struct {
         char * symmetric_key;
         int symmetric_key_len;
+	int version;
     } sech;
 #endif//OPENSSL_NO_SECH
 

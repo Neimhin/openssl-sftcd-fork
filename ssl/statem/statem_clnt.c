@@ -1521,61 +1521,65 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
      * supported_versions extension for the real supported versions.
      */
 #ifndef OPENSSL_NO_SECH
-    /* Get the length of the Client Hello Inner SNI */
-    OSSL_TRACE_BEGIN(TLS) {
-        BIO_printf(trc_out, "SECH: ext.hostname %s\n", s->ext.hostname);
-    } OSSL_TRACE_END(TLS);
-    int inner_sni_length = strlen(s->ext.hostname);
+    fprintf(stderr, "SECH: version: %i\n", s->sech.version);
+    if(s->sech.version == 2) {
+      fprintf(stderr, "Running SECH version 2\n");
+      /* Get the length of the Client Hello Inner SNI */
+      OSSL_TRACE_BEGIN(TLS) {
+          BIO_printf(trc_out, "SECH: ext.hostname %s\n", s->ext.hostname);
+      } OSSL_TRACE_END(TLS);
+      int inner_sni_length = strlen(s->ext.hostname);
 
-    /* TODO insecure IV */
-    unsigned char iv[12] = {
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-    };
+      /* TODO insecure IV */
+      unsigned char iv[12] = {
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+      };
 
-    /* Encrypt the Client Hello Inner SNI */
-    char * encrypted_sni = unsafe_encrypt_aes128gcm(
-        (unsigned char *)s->ext.hostname,
-        inner_sni_length,
-        &iv,
-        (unsigned char *)s->sech.symmetric_key,
-	s->sech.symmetric_key_len,
-        // SECH_SYMMETRIC_KEY_MAX_LENGTH,
-        &inner_sni_length);
+      /* Encrypt the Client Hello Inner SNI */
+      char * encrypted_sni = unsafe_encrypt_aes128gcm(
+          (unsigned char *)s->ext.hostname,
+          inner_sni_length,
+          iv,
+          (unsigned char *)s->sech.symmetric_key,
+          s->sech.symmetric_key_len,
+          // SECH_SYMMETRIC_KEY_MAX_LENGTH,
+          &inner_sni_length);
 
-    /* Hide the ESNI, its length, and the IV in the ClientRandom */
-    p[0] = (unsigned char) inner_sni_length;
-    for(int i = 0; i < inner_sni_length; i++) {
-        p[i + 1] =  encrypted_sni[i];
-    }
-    for(int i = 20; i < SSL3_RANDOM_SIZE; i++) {
-        p[i] = iv[i - 20]; 
-    }
+      /* Hide the ESNI, its length, and the IV in the ClientRandom */
+      p[0] = (unsigned char) inner_sni_length;
+      for(int i = 0; i < inner_sni_length; i++) {
+          p[i + 1] =  encrypted_sni[i];
+      }
+      for(int i = 20; i < SSL3_RANDOM_SIZE; i++) {
+          p[i] = iv[i - 20]; 
+      }
 
-    fprintf(stderr, "SECH: random sni length %i\n", inner_sni_length);
-    fprintf(stderr, "SECH: random encrypted sni\n", inner_sni_length);
-    BIO_dump_fp(stderr, encrypted_sni, inner_sni_length);
-    fprintf(stderr, "SECH: random iv\n", inner_sni_length);
-    BIO_dump_fp(stderr, iv, 12);
-    fprintf(stderr, "SECH: random key\n");
-    BIO_dump_fp(stderr, s->sech.symmetric_key, strlen(s->sech.symmetric_key));
-    fprintf(stderr, "SECH: random\n");
-    BIO_dump_fp(stderr, p, SSL3_RANDOM_SIZE);
+      fprintf(stderr, "SECH: random sni length %i\n", inner_sni_length);
+      fprintf(stderr, "SECH: random encrypted sni\n");
+      BIO_dump_fp(stderr, encrypted_sni, inner_sni_length);
+      fprintf(stderr, "SECH: random iv\n");
+      BIO_dump_fp(stderr, iv, 12);
+      fprintf(stderr, "SECH: random key\n");
+      BIO_dump_fp(stderr, s->sech.symmetric_key, strlen(s->sech.symmetric_key));
+      fprintf(stderr, "SECH: random\n");
+      BIO_dump_fp(stderr, p, SSL3_RANDOM_SIZE);
 
-    fprintf(stderr, "SECH: random cleartext");
-    BIO_dump_fp(stderr, s->ext.hostname, inner_sni_length);
+      fprintf(stderr, "SECH: random cleartext");
+      BIO_dump_fp(stderr, s->ext.hostname, inner_sni_length);
 
-    if (!WPACKET_put_bytes_u16(pkt, s->client_version)
-            || !WPACKET_memcpy(pkt, encrypted_sni, SSL3_RANDOM_SIZE)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return CON_FUNC_ERROR;
-    }
-#elif defined(OPENSSL_NO_ECH)
-    if (!WPACKET_put_bytes_u16(pkt, s->client_version)
-            || !WPACKET_memcpy(pkt, p, SSL3_RANDOM_SIZE)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return CON_FUNC_ERROR;
+      if (!WPACKET_put_bytes_u16(pkt, s->client_version)
+              || !WPACKET_memcpy(pkt, encrypted_sni, SSL3_RANDOM_SIZE)) {
+          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+          return CON_FUNC_ERROR;
+      }
+    } else {
+      if (!WPACKET_put_bytes_u16(pkt, s->client_version)
+              || !WPACKET_memcpy(pkt, s->s3.client_random, SSL3_RANDOM_SIZE)) {
+          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+          return CON_FUNC_ERROR;
+      }
     }
 #else
     if (!WPACKET_put_bytes_u16(pkt, s->client_version)

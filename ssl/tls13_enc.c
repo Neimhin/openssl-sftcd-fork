@@ -369,6 +369,9 @@ size_t tls13_final_finish_mac(SSL_CONNECTION *s, const char *str, size_t slen,
         goto err;
     }
 
+    fprintf(stderr, "NEIMHIN-DEBUG: finish hmac");
+    BIO_dump_fp(stderr, out, len);
+
  err:
     OPENSSL_cleanse(finsecret, sizeof(finsecret));
     return len;

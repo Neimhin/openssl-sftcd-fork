@@ -15,11 +15,11 @@
 #include <openssl/trace.h>
 #include "helpers/ssltestlib.h"
 
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
 
 # define OSSL_ECH_MAX_LINELEN 1000 /* for a sanity check */
 
-static size_t ech_trace_cb(const char *buf, size_t cnt,
+static size_t sech_trace_cb(const char *buf, size_t cnt,
                            int category, int cmd, void *vdata)
 {
      BIO *bio = vdata;
@@ -133,7 +133,7 @@ static int encrypt_symmetric_test(void) {
         0, 0, 0, 0,
         0, 0, 0, 0,
     };
-    char* cipher_text = unsafe_encrypt_aes128gcm(plain, plain_len, &iv, key, key_len, &out_len);
+    char* cipher_text = unsafe_encrypt_aes128gcm(plain, plain_len, iv, key, key_len, &out_len);
 
     fprintf(stderr, "SECH: EVP_MAX_IV_LENGTH: %lu\n", EVP_MAX_IV_LENGTH);
     fprintf(stderr, "SECH: sizeof(iv):  %lu\n", sizeof(iv));
@@ -141,7 +141,7 @@ static int encrypt_symmetric_test(void) {
     char * decrypted_text = unsafe_decrypt_aes128gcm(
         (unsigned char *)cipher_text,
         out_len,
-        &iv,
+        iv,
         key,
         key_len,
         &out_len);
@@ -199,10 +199,10 @@ int setup_tests(void)
 # ifndef OPENSSL_NO_SSL_TRACE
       OSSL_trace_set_callback(
           OSSL_TRACE_CATEGORY_TLS,
-          ech_trace_cb,
+          sech_trace_cb,
           bio_s_out);
 #endif
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
     OPTION_CHOICE o;
     // int suite_combos;
 
@@ -242,7 +242,7 @@ err:
 
 void cleanup_tests(void)
 {
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
     BIO_free(bio_null);
     BIO_free(bio_stdout);
     OPENSSL_free(cert);

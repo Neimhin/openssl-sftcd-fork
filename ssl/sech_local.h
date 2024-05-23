@@ -11,7 +11,7 @@
  * Internal data structures and prototypes for handling
  * stealthy Encrypted ClientHello (SECH)
  */
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
 # ifndef HEADER_SECH_LOCAL_H
 #  define HEADER_SECH_LOCAL_H
 

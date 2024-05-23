@@ -133,6 +133,7 @@ static size_t ech_trace_cb(const char *buf, size_t cnt,
 #endif
 #ifndef OPENSSL_NO_SECH
 static char* sech_symmetric_key = NULL;
+static char* sech_version = NULL;
 #endif//OPENSSL_NO_SECH
 
 static SSL_SESSION *psksess = NULL;
@@ -657,6 +658,7 @@ typedef enum OPTION_choice {
 #endif
 #ifndef OPENSSL_NO_SECH
     OPT_SECH_SYMMETRIC_KEY,
+    OPT_SECH_VERSION,
 #endif//OPENSSL_NO_SECH
     OPT_SCTP_LABEL_BUG,
     OPT_KTLS,
@@ -875,6 +877,7 @@ const OPTIONS s_client_options[] = {
 #endif
 #ifndef OPENSSL_NO_SECH
     {"sech_symmetric_key", OPT_SECH_SYMMETRIC_KEY, 's', "Hex encoding of the key to encrypt the SNI stealthily into ClientHello"},
+    {"sech_version", OPT_SECH_VERSION, 's', "Which SECH version to use. Supported versions: 2. NYI: 1, 3, 4, 5, 6."},
 #endif//OPENSSL_NO_SECH
 #ifndef OPENSSL_NO_SRTP
     {"use_srtp", OPT_USE_SRTP, 's',
@@ -1787,6 +1790,9 @@ int s_client_main(int argc, char **argv)
         case OPT_SECH_SYMMETRIC_KEY:
             sech_symmetric_key = opt_arg();
             break;
+        case OPT_SECH_VERSION:
+            sech_version = opt_arg();
+            break;
 #endif//OPENSSL_NO_SECH
 
         case OPT_NOSERVERNAME:
@@ -2145,7 +2151,12 @@ int s_client_main(int argc, char **argv)
     if(sech_symmetric_key != NULL) {
         SSL_CTX_sech_symmetric_key(ctx, sech_symmetric_key);
     }
-#endif//OPENSSL_NO_ECH
+    if(sech_version != -1) {
+        if(!SSL_CTX_sech_version(ctx, sech_version)) {
+            BIO_printf(bio_err, "ERROR: invalid SECH version: %s\n", sech_version);
+	}
+    }
+#endif//OPENSSL_NO_SECH
 
     SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
 

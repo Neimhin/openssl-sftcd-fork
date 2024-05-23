@@ -44,9 +44,23 @@ int SSL_CTX_sech_decode_sni(SSL_CTX *ctx)
     return 200*200;
 }
 
+int SSL_CTX_sech_version(SSL_CTX *ctx, char* version) {
+	fprintf(stderr, "SECH: version %s\n", version);
+	if(version == NULL) {
+		ctx->sech.version = -1;
+		return 0;
+	}
+	if(version[0] == '2' && version[1] == '\0') {
+		ctx->sech.version = 2;
+		return 1;
+	}
+	ctx->sech.version = -1;
+	return 0;
+}
+
 int SSL_CTX_sech_symmetric_key(SSL_CTX *ctx, char *key)
 {
-    BIO * trace_out = BIO_new_fp(stderr, NULL);
+    BIO * trace_out = BIO_new_fp(stderr, 0);
     fprintf(stderr, "SECH: key %s\n", key);
     OSSL_TRACE_BEGIN(TLS) {
         BIO_printf(trace_out, "SECH: test trace 1");
