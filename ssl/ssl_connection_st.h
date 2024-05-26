@@ -477,8 +477,10 @@ struct ssl_connection_st {
 #ifndef OPENSSL_NO_SECH
     struct {
         char * symmetric_key;
-        int symmetric_key_len;
+        size_t symmetric_key_len;
 	int version;
+	size_t inner_servername_len;
+	char * inner_servername;
     } sech;
 #endif//OPENSSL_NO_SECH
 

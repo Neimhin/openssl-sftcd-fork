@@ -134,6 +134,7 @@ static size_t ech_trace_cb(const char *buf, size_t cnt,
 #ifndef OPENSSL_NO_SECH
 static char* sech_symmetric_key = NULL;
 static char* sech_version = NULL;
+static char* sech_inner_servername = NULL;
 #endif//OPENSSL_NO_SECH
 
 static SSL_SESSION *psksess = NULL;
@@ -659,6 +660,7 @@ typedef enum OPTION_choice {
 #ifndef OPENSSL_NO_SECH
     OPT_SECH_SYMMETRIC_KEY,
     OPT_SECH_VERSION,
+    OPT_SECH_INNER_SERVERNAME,
 #endif//OPENSSL_NO_SECH
     OPT_SCTP_LABEL_BUG,
     OPT_KTLS,
@@ -878,6 +880,7 @@ const OPTIONS s_client_options[] = {
 #ifndef OPENSSL_NO_SECH
     {"sech_symmetric_key", OPT_SECH_SYMMETRIC_KEY, 's', "Hex encoding of the key to encrypt the SNI stealthily into ClientHello"},
     {"sech_version", OPT_SECH_VERSION, 's', "Which SECH version to use. Supported versions: 2. NYI: 1, 3, 4, 5, 6."},
+    {"sech_inner_servername", OPT_SECH_INNER_SERVERNAME, 's', "Inner (hidden) servername, i.e. the name of the true target server."},
 #endif//OPENSSL_NO_SECH
 #ifndef OPENSSL_NO_SRTP
     {"use_srtp", OPT_USE_SRTP, 's',
@@ -1793,6 +1796,9 @@ int s_client_main(int argc, char **argv)
         case OPT_SECH_VERSION:
             sech_version = opt_arg();
             break;
+        case OPT_SECH_INNER_SERVERNAME:
+            sech_inner_servername = opt_arg();
+            break;
 #endif//OPENSSL_NO_SECH
 
         case OPT_NOSERVERNAME:
@@ -2151,11 +2157,19 @@ int s_client_main(int argc, char **argv)
     if(sech_symmetric_key != NULL) {
         SSL_CTX_sech_symmetric_key(ctx, sech_symmetric_key);
     }
-    if(sech_version != -1) {
+    if(sech_version != NULL) {
         if(!SSL_CTX_sech_version(ctx, sech_version)) {
             BIO_printf(bio_err, "ERROR: invalid SECH version: %s\n", sech_version);
+	    return 1;
 	}
     }
+    if(sech_inner_servername != NULL) {
+        if(!SSL_CTX_sech_inner_servername(ctx, sech_inner_servername)) {
+            BIO_printf(bio_err, "ERROR: cannot use sech_inner_servername: %s\n", sech_inner_servername);
+	    return 1;
+	}
+    }
+
 #endif//OPENSSL_NO_SECH
 
     SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);

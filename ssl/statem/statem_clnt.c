@@ -10,6 +10,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <assert.h>
 #include "../ssl_local.h"
@@ -1526,9 +1527,8 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
       fprintf(stderr, "Running SECH version 2\n");
       /* Get the length of the Client Hello Inner SNI */
       OSSL_TRACE_BEGIN(TLS) {
-          BIO_printf(trc_out, "SECH: ext.hostname %s\n", s->ext.hostname);
+          BIO_printf(trc_out, "SECH: sech.inner_servername: %s\n", s->sech.inner_servername);
       } OSSL_TRACE_END(TLS);
-      int inner_sni_length = strlen(s->ext.hostname);
 
       /* TODO insecure IV */
       unsigned char iv[12] = {
@@ -1538,27 +1538,32 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
       };
 
       /* Encrypt the Client Hello Inner SNI */
+      int cipher_len_out = -1;
       char * encrypted_sni = unsafe_encrypt_aes128gcm(
-          (unsigned char *)s->ext.hostname,
-          inner_sni_length,
+          (unsigned char *)s->sech.inner_servername,
+          s->sech.inner_servername_len,
           iv,
           (unsigned char *)s->sech.symmetric_key,
           s->sech.symmetric_key_len,
-          // SECH_SYMMETRIC_KEY_MAX_LENGTH,
-          &inner_sni_length);
+          &cipher_len_out);
+
+      if(cipher_len_out >= 19) {
+        fprintf(stderr, "SECH: ERROR: inner sni cipher too long (TODO)\n");
+	exit(1);
+      }
 
       /* Hide the ESNI, its length, and the IV in the ClientRandom */
-      p[0] = (unsigned char) inner_sni_length;
-      for(int i = 0; i < inner_sni_length; i++) {
+      p[0] = (unsigned char) cipher_len_out;
+      for(int i = 0; i < cipher_len_out; i++) {
           p[i + 1] =  encrypted_sni[i];
       }
       for(int i = 20; i < SSL3_RANDOM_SIZE; i++) {
           p[i] = iv[i - 20]; 
       }
 
-      fprintf(stderr, "SECH: random sni length %i\n", inner_sni_length);
+      fprintf(stderr, "SECH: random sni length %i\n", cipher_len_out);
       fprintf(stderr, "SECH: random encrypted sni\n");
-      BIO_dump_fp(stderr, encrypted_sni, inner_sni_length);
+      BIO_dump_fp(stderr, encrypted_sni, cipher_len_out);
       fprintf(stderr, "SECH: random iv\n");
       BIO_dump_fp(stderr, iv, 12);
       fprintf(stderr, "SECH: random key\n");
@@ -1567,7 +1572,7 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
       BIO_dump_fp(stderr, p, SSL3_RANDOM_SIZE);
 
       fprintf(stderr, "SECH: random cleartext");
-      BIO_dump_fp(stderr, s->ext.hostname, inner_sni_length);
+      BIO_dump_fp(stderr, s->sech.inner_servername, cipher_len_out);
 
       if (!WPACKET_put_bytes_u16(pkt, s->client_version)
               || !WPACKET_memcpy(pkt, encrypted_sni, SSL3_RANDOM_SIZE)) {

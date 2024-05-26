@@ -58,6 +58,11 @@ int SSL_CTX_sech_version(SSL_CTX *ctx, char* version) {
 	return 0;
 }
 
+int SSL_CTX_sech_inner_servername(SSL_CTX *ctx, char* inner_servername) {
+	ctx->sech.inner_servername_len = strlen(inner_servername);
+	ctx->sech.inner_servername = inner_servername;
+}
+
 int SSL_CTX_sech_symmetric_key(SSL_CTX *ctx, char *key)
 {
     BIO * trace_out = BIO_new_fp(stderr, 0);

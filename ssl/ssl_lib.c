@@ -974,12 +974,31 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
     s->ext.ech.kepthrr = NULL;
 #endif
 #ifndef OPENSSL_NO_SECH
-    s->sech.symmetric_key = OPENSSL_malloc(SECH_SYMMETRIC_KEY_MAX_LENGTH);
-    if (s->sech.symmetric_key == NULL)
-            goto err;
-    memcpy(s->sech.symmetric_key, ctx->sech.symmetric_key, SECH_SYMMETRIC_KEY_MAX_LENGTH);
-    s->sech.symmetric_key_len = ctx->sech.symmetric_key_len;
     s->sech.version = ctx->sech.version;
+
+    // copy symmetric key from ctx to connection
+    if (ctx->sech.symmetric_key == NULL) {
+      s->sech.symmetric_key = NULL;
+    }
+    else {
+	size_t l = ctx->sech.symmetric_key_len;
+    	s->sech.symmetric_key_len = l;
+	s->sech.symmetric_key = OPENSSL_malloc(l);
+    	if (s->sech.symmetric_key == NULL) goto err;
+	memcpy(s->sech.symmetric_key, ctx->sech.symmetric_key, l);
+    }
+
+    // copy inner servername from ctx to connection
+    if (ctx->sech.inner_servername == NULL) {
+      s->sech.inner_servername = NULL;
+    }
+    else {
+	size_t l = ctx->sech.inner_servername_len;
+    	s->sech.inner_servername_len = l;
+	s->sech.inner_servername = OPENSSL_malloc(l);
+    	if (s->sech.inner_servername == NULL) goto err;
+	memcpy(s->sech.inner_servername, ctx->sech.inner_servername, l);
+    }
 #endif
     return ssl;
  cerr:

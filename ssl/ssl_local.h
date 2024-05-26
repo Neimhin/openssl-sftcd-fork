@@ -1016,9 +1016,11 @@ struct ssl_ctx_st {
 
 #ifndef OPENSSL_NO_SECH
     struct {
-        unsigned char symmetric_key_len;
-        char *symmetric_key;
+        size_t symmetric_key_len;
+        char * symmetric_key;
 	int version;
+	size_t inner_servername_len;
+	char * inner_servername;
     } sech;
 #endif//OPENSSL_NO_SECH
 
