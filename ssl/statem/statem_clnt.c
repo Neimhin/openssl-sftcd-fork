@@ -1521,72 +1521,79 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
      * For TLS 1.3 we always set the ClientHello version to 1.2 and rely on the
      * supported_versions extension for the real supported versions.
      */
+#if !defined(OPENSSL_NO_SECH) || !defined(OPENSSL_NO_ECH)
+#ifndef OPENSSL_NO_ECH
+    if(s->ext.ech.ch_depth == 0) {
+#endif
 #ifndef OPENSSL_NO_SECH
-    fprintf(stderr, "SECH: version: %i\n", s->sech.version);
-    if(s->sech.version == 2) {
-      fprintf(stderr, "Running SECH version 2\n");
-      /* Get the length of the Client Hello Inner SNI */
-      OSSL_TRACE_BEGIN(TLS) {
-          BIO_printf(trc_out, "SECH: sech.inner_servername: %s\n", s->sech.inner_servername);
-      } OSSL_TRACE_END(TLS);
+      if(s->sech.version == 2) {
+        /* TODO insecure IV */
+        unsigned char iv[12] = {
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        };
 
-      /* TODO insecure IV */
-      unsigned char iv[12] = {
-          0, 0, 0, 0,
-          0, 0, 0, 0,
-          0, 0, 0, 0,
-      };
+        /* Encrypt the Client Hello Inner SNI */
+        int cipher_len_out = -1;
+        char * encrypted_sni = unsafe_encrypt_aes128gcm(
+            (unsigned char *)s->sech.inner_servername,
+            s->sech.inner_servername_len,
+            iv,
+            (unsigned char *)s->sech.symmetric_key,
+            s->sech.symmetric_key_len,
+            &cipher_len_out);
 
-      /* Encrypt the Client Hello Inner SNI */
-      int cipher_len_out = -1;
-      char * encrypted_sni = unsafe_encrypt_aes128gcm(
-          (unsigned char *)s->sech.inner_servername,
-          s->sech.inner_servername_len,
-          iv,
-          (unsigned char *)s->sech.symmetric_key,
-          s->sech.symmetric_key_len,
-          &cipher_len_out);
+        if(cipher_len_out >= 19) {
+          fprintf(stderr, "SECH: ERROR: inner sni cipher too long (TODO)\n");
+	        exit(1);
+        }
 
-      if(cipher_len_out >= 19) {
-        fprintf(stderr, "SECH: ERROR: inner sni cipher too long (TODO)\n");
-	exit(1);
+        /* Hide the ESNI, its length, and the IV in the ClientRandom */
+        p[0] = (unsigned char) cipher_len_out;
+        for(int i = 0; i < cipher_len_out; i++) {
+            p[i + 1] =  encrypted_sni[i];
+        }
+        for(int i = 20; i < SSL3_RANDOM_SIZE; i++) {
+            p[i] = iv[i - 20]; 
+        }
+
+        fprintf(stderr, "SECH: random sni length %i\n", cipher_len_out);
+        fprintf(stderr, "SECH: random encrypted sni\n");
+        BIO_dump_fp(stderr, encrypted_sni, cipher_len_out);
+        fprintf(stderr, "SECH: random iv\n");
+        BIO_dump_fp(stderr, iv, 12);
+        fprintf(stderr, "SECH: random key\n");
+        BIO_dump_fp(stderr, s->sech.symmetric_key, strlen(s->sech.symmetric_key));
+        fprintf(stderr, "SECH: random\n");
+        BIO_dump_fp(stderr, p, SSL3_RANDOM_SIZE);
+
+        fprintf(stderr, "SECH: random cleartext");
+        BIO_dump_fp(stderr, s->sech.inner_servername, cipher_len_out);
+
+        if (!WPACKET_put_bytes_u16(pkt, s->client_version)
+                || !WPACKET_memcpy(pkt, encrypted_sni, SSL3_RANDOM_SIZE)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+      } else {
+        if (!WPACKET_put_bytes_u16(pkt, s->client_version)
+                || !WPACKET_memcpy(pkt, s->s3.client_random, SSL3_RANDOM_SIZE)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
       }
-
-      /* Hide the ESNI, its length, and the IV in the ClientRandom */
-      p[0] = (unsigned char) cipher_len_out;
-      for(int i = 0; i < cipher_len_out; i++) {
-          p[i + 1] =  encrypted_sni[i];
-      }
-      for(int i = 20; i < SSL3_RANDOM_SIZE; i++) {
-          p[i] = iv[i - 20]; 
-      }
-
-      fprintf(stderr, "SECH: random sni length %i\n", cipher_len_out);
-      fprintf(stderr, "SECH: random encrypted sni\n");
-      BIO_dump_fp(stderr, encrypted_sni, cipher_len_out);
-      fprintf(stderr, "SECH: random iv\n");
-      BIO_dump_fp(stderr, iv, 12);
-      fprintf(stderr, "SECH: random key\n");
-      BIO_dump_fp(stderr, s->sech.symmetric_key, strlen(s->sech.symmetric_key));
-      fprintf(stderr, "SECH: random\n");
-      BIO_dump_fp(stderr, p, SSL3_RANDOM_SIZE);
-
-      fprintf(stderr, "SECH: random cleartext");
-      BIO_dump_fp(stderr, s->sech.inner_servername, cipher_len_out);
-
-      if (!WPACKET_put_bytes_u16(pkt, s->client_version)
-              || !WPACKET_memcpy(pkt, encrypted_sni, SSL3_RANDOM_SIZE)) {
-          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-          return CON_FUNC_ERROR;
-      }
-    } else {
-      if (!WPACKET_put_bytes_u16(pkt, s->client_version)
-              || !WPACKET_memcpy(pkt, s->s3.client_random, SSL3_RANDOM_SIZE)) {
-          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-          return CON_FUNC_ERROR;
-      }
+#endif//OPENSSL_NO_SECH
+#ifndef OPENSSL_NO_ECH
+    } else { // ch_depth == 1 -> use ECH's inner SNI
+        if (!WPACKET_put_bytes_u16(pkt, s->client_version)
+                || !WPACKET_memcpy(pkt, p, SSL3_RANDOM_SIZE)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
     }
-#else
+#endif
+#else // NO_ECH && NO_SECH
     if (!WPACKET_put_bytes_u16(pkt, s->client_version)
             || !WPACKET_memcpy(pkt, s->s3.client_random, SSL3_RANDOM_SIZE)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
