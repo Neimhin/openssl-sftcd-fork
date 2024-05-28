@@ -1096,6 +1096,9 @@ struct ssl_ctx_st {
         SSL_ech_cb_func ech_cb; /* ECH call back */
         unsigned char *alpn_outer; /* Outer ALPN (if any) */
         size_t alpn_outer_len;
+        int sech_version;
+        char * sech_symmetric_key;
+        size_t sech_symmetric_key_len;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
     } ext;

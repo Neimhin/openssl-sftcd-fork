@@ -5910,4 +5910,25 @@ err:
     return rv;
 }
 
+int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len)
+{
+    if (key == NULL) return 0;
+    if (ctx == NULL) return 0;
+    ctx->ext.sech_symmetric_key = OPENSSL_malloc(key_len);
+    if(ctx->ext.sech_symmetric_key == NULL) return 0;
+    ctx->ext.sech_symmetric_key_len = key_len;
+    for(int i = 0; i < key_len; ++i) ctx->ext.sech_symmetric_key[i] = key[i];
+    return 1;
+}
+
+int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version) {
+  switch(version) {
+    case 2:
+        ctx->ext.sech_version = version;
+        return 1;
+    finally:
+        return 0;
+  }
+}
+
 #endif
