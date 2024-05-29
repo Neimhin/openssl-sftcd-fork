@@ -12,6 +12,8 @@
 #include "testutil.h"
 #include "helpers/ssltestlib.h"
 
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #ifndef OPENSSL_NO_ECH
 
 # define OSSL_ECH_MAX_LINELEN 1000 /* for a sanity check */
@@ -2324,36 +2326,80 @@ static int sanity_check_fail(int idx)
 {
     return 0;
 }
+int sech2_tried_but_not_accepted__servername_callback(SSL *s, int *al, void *arg)
+{
 
+    int servername_type = SSL_get_servername_type(s);
+    const char * servername = SSL_get_servername(s, servername_type);
+    fprintf(stderr, "servername_type: %i\n", servername_type);
+    fprintf(stderr, "TLSEXT_NAMETYPE_host_name: %i\n", TLSEXT_NAMETYPE_host_name);
+    fprintf(stderr, "servername: %s\n", servername);
+    return SSL_TLSEXT_ERR_OK;
+}
+// int sech2_tried_but_not_accepted__msg_callback(SSL *s, int *al, void *arg)
+// {
+// }
 // - normal TLS1_3 server
 // - client running SECH version 2
 // - expect server to ignore inner SNI, returning valid certificate for outer SNI
 static int sech2_tried_but_not_accepted(int idx)
 {
+    char * inner_servername = "inner.example";
+    const char * expected_servername = "server.example";
     SSL_CTX *cctx = NULL, *sctx = NULL;
     if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
                                        TLS_client_method(),
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, cert, privkey)))
         return 0;
-
-    fprintf(stderr, "privkey ptr: %p\n", privkey);
-    BIO_dump_fp(stderr, privkey, 1024);
-
     SSL_CTX_set_sech_version(cctx, 2);
     char key[4] = {0xab, 0xab, 0xab, 0xab};
     size_t key_len = sizeof(key);
     SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
     SSL_CTX_set_sech_version(cctx, 2);
+    SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
+    // SSL_CTX_set_sech_inner_servername(...);
     SSL * serverssl = SSL_new(sctx);
     SSL * clientssl = SSL_new(cctx);
     fprintf(stderr, "%p\n", sctx);
+    SSL_CTX_set_tlsext_servername_callback(sctx, sech2_tried_but_not_accepted__servername_callback);
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl,
                                       &clientssl, NULL, NULL))) return 0;
-    if (!TEST_true(SSL_set_tlsext_host_name(clientssl, "server.example"))) return 0;
+    if (!TEST_true(SSL_set_tlsext_host_name(clientssl, expected_servername))) return 0;
     if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE))) return 0;
-    
-    return 1;
+
+    // confirm that the returned certificate is for the 'outer' server.example
+    X509 * server_certificate = SSL_get_peer_certificate(clientssl);
+    X509 * client_certificate = SSL_get_certificate(clientssl);
+    X509_print_ex_fp(stderr, server_certificate, 0, 0);
+    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(server_certificate == NULL) {
+        // shouldn't happen?
+        return 0;
+    }
+    int check_host = X509_check_host(server_certificate, expected_servername, 0, 0, NULL);
+    if(check_host != 1) {
+        return 0;
+    }
+    if(client_certificate == NULL) { /* that's fine */ }
+
+    X509_NAME *verified_server_name = X509_get_subject_name(server_certificate);
+
+    if(!X509_NAME_print_ex_fp(stderr, verified_server_name, 0, 0)) {
+        return 0;
+    };
+    char*name = X509_NAME_oneline(verified_server_name, NULL, 0); // buf=NULL -> size=0 is ignored
+    if(name == NULL) {
+        return 0;
+    }
+
+    fprintf(stderr, "\n%i", name[0]);
+    fprintf(stderr, "\n%s\n", name);
+
+    int cmp = strcmp("/CN=server.example", name);
+    fprintf(stderr, "strcmp(\"/CN=server.example\",\"%s\") = %i\n", name ,cmp);
+    if(cmp == 0)  return 1;
+    return 0;
 }
 
 int setup_tests(void)

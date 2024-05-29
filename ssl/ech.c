@@ -5922,13 +5922,23 @@ int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len
 }
 
 int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version) {
-  switch(version) {
+  switch(version)
+  {
     case 2:
         ctx->ext.sech_version = version;
         return 1;
-    finally:
+    default:
         return 0;
   }
+}
+
+int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len) {
+    if(inner_servername_len == 0 && inner_servername != NULL) {
+      inner_servername_len = strlen(inner_servername);
+    }
+    ctx->ext.sech_inner_servername_len = inner_servername_len;
+    ctx->ext.sech_inner_servername = inner_servername;
+    return 1;
 }
 
 #endif
