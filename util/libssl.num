@@ -608,3 +608,6 @@ OSSL_ech_make_echconfig                 ?	3_4_0	EXIST::FUNCTION:ECH
 OSSL_ech_find_echconfigs                ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_CTX_set_sech_version                ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_CTX_set_sech_symmetric_key          ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_servername       ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_sech_get_status                     ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_cert_and_key_filenames ?	3_4_0	EXIST::FUNCTION:ECH

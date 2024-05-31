@@ -57,6 +57,9 @@
 #  define SSL_ECH_STATUS_FAILED_ECH -105 /* We tried, failed and got an ECH, from a good name */
 #  define SSL_ECH_STATUS_FAILED_ECH_BAD_NAME -106 /* We tried, failed and got an ECH, from a bad name */
 
+#  define SSL_SECH_STATUS_SUCCESS   1 /* tried and succeeded with stealthy ECH, either on server or client */
+#  define SSL_SECH_STATUS_FAILED    0 /* generic failure of attempted SECH, either on server or client */
+
 /*
  * Define this if you want to allow a test where we inject an ECH
  * extension into a TLSv1.2 client hello message via the custom
@@ -100,6 +103,8 @@ int SSL_CTX_ech_set1_echconfig(SSL_CTX *ctx, const unsigned char *val,
 int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version);
 int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char * key, size_t key_len);
 int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len);
+int SSL_CTX_set_sech_inner_cert_and_key_filenames(SSL_CTX *ctx, char*inner_cert_filepath, char*inner_key_filepath);
+int SSL_sech_get_status(SSL * s);
 
 int SSL_ech_set_server_names(SSL *s, const char *inner_name,
                              const char *outer_name, int no_outer);

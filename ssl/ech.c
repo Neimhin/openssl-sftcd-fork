@@ -5941,4 +5941,14 @@ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int 
     return 1;
 }
 
+int SSL_CTX_set_sech_inner_cert_and_key_filenames(SSL_CTX *ctx, char* cert_filename, char*key_filename){
+    // TODO not yet implemented
+    return 0;
+}
+
+int SSL_sech_get_status(SSL * s) {
+    // TODO not yet implemented
+    return SSL_SECH_STATUS_FAILED;
+}
+
 #endif
