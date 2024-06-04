@@ -18,6 +18,7 @@
 
 # include <openssl/ssl.h>
 # include <openssl/hpke.h>
+# include <openssl/evp.h>
 
 # ifndef OPENSSL_NO_ECH
 
@@ -103,8 +104,14 @@ int SSL_CTX_ech_set1_echconfig(SSL_CTX *ctx, const unsigned char *val,
 int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version);
 int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char * key, size_t key_len);
 int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len);
-int SSL_CTX_set_sech_inner_cert_and_key_filenames(SSL_CTX *ctx, char*inner_cert_filepath, char*inner_key_filepath);
-int SSL_sech_get_status(SSL * s);
+int SSL_CTX_set_sech_inner_cert_and_key_files(SSL_CTX *ctx, char*inner_cert_filepath, char*inner_key_filepath);
+int SSL_CTX_set_sech_inner_certificate(SSL_CTX *ctx, X509 *x);
+int SSL_CTX_set_sech_inner_certificate_file(SSL_CTX *ctx, const char *file, int type);
+int SSL_CTX_set_sech_inner_PrivateKey_file(SSL_CTX *ctx, char*pkey_file, int type);
+int SSL_CTX_set_sech_inner_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey);
+int SSL_CTX_set_sech_inner_PrivateKey(SSL_CTX *ssl, EVP_PKEY *pkey);
+int SSL_get_sech_status(SSL * s);
+int SSL_set_sech_inner_PrivateKey(SSL *ssl, EVP_PKEY *pkey);
 
 int SSL_ech_set_server_names(SSL *s, const char *inner_name,
                              const char *outer_name, int no_outer);

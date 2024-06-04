@@ -160,6 +160,75 @@ int SSL_use_PrivateKey(SSL *ssl, EVP_PKEY *pkey)
     return ret;
 }
 
+int SSL_CTX_set_sech_inner_PrivateKey_file(SSL_CTX *ctx, char*file, int type)
+{
+    int j, ret = 0;
+    BIO *in;
+    EVP_PKEY *pkey = NULL;
+
+    in = BIO_new(BIO_s_file());
+    if (in == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_BUF_LIB);
+        goto end;
+    }
+
+    if (BIO_read_filename(in, file) <= 0) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_SYS_LIB);
+        goto end;
+    }
+    if (type == SSL_FILETYPE_PEM) {
+        j = ERR_R_PEM_LIB;
+        pkey = PEM_read_bio_PrivateKey_ex(in, NULL,
+                                       ctx->default_passwd_callback,
+                                       ctx->default_passwd_callback_userdata,
+                                       ctx->libctx, ctx->propq);
+    } else if (type == SSL_FILETYPE_ASN1) {
+        j = ERR_R_ASN1_LIB;
+        pkey = d2i_PrivateKey_ex_bio(in, NULL, ctx->libctx, ctx->propq);
+    } else {
+        ERR_raise(ERR_LIB_SSL, SSL_R_BAD_SSL_FILETYPE);
+        goto end;
+    }
+    if (pkey == NULL) {
+        ERR_raise(ERR_LIB_SSL, j);
+        goto end;
+    }
+    ret = SSL_CTX_set_sech_inner_PrivateKey(ctx, pkey);
+    EVP_PKEY_free(pkey);
+ end:
+    BIO_free(in);
+    return ret;
+}
+
+int SSL_CTX_set_sech_inner_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey)
+{
+    if (ctx == NULL) {
+        // TODO: why not raise error here?
+        return 0;
+    }
+    if (pkey == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_NULL_PARAMETER);
+        return 0;
+    }
+    return ssl_set_pkey(ctx->ext.sech_inner_cert, pkey, ctx);
+}
+
+int SSL_set_sech_inner_PrivateKey(SSL *ssl, EVP_PKEY *pkey)
+{
+    int ret;
+    SSL_CONNECTION *sc = SSL_CONNECTION_FROM_SSL(ssl);
+
+    if (sc == NULL)
+        return 0;
+
+    if (pkey == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_NULL_PARAMETER);
+        return 0;
+    }
+    ret = ssl_set_pkey(sc->ext.sech_inner_cert, pkey, SSL_CONNECTION_GET_CTX(sc));
+    return ret;
+}
+
 int SSL_use_PrivateKey_file(SSL *ssl, const char *file, int type)
 {
     int j, ret = 0;
@@ -240,6 +309,22 @@ int SSL_CTX_use_certificate(SSL_CTX *ctx, X509 *x)
         return 0;
     }
     return ssl_set_cert(ctx->cert, x, ctx);
+}
+
+int SSL_CTX_set_sech_inner_certificate(SSL_CTX *ctx, X509 *x)
+{
+    int rv;
+    if (x == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_NULL_PARAMETER);
+        return 0;
+    }
+
+    rv = ssl_security_cert(NULL, ctx, x, 0, 1);
+    if (rv != 1) {
+        ERR_raise(ERR_LIB_SSL, rv);
+        return 0;
+    }
+    return ssl_set_cert(ctx->ext.sech_inner_cert, x, ctx);
 }
 
 static int ssl_set_cert(CERT *c, X509 *x, SSL_CTX *ctx)
@@ -339,6 +424,52 @@ int SSL_CTX_use_certificate_file(SSL_CTX *ctx, const char *file, int type)
     return ret;
 }
 
+int SSL_CTX_set_sech_inner_certificate_file(SSL_CTX *ctx, const char *file, int type)
+{
+    int j = SSL_R_BAD_VALUE;
+    BIO *in;
+    int ret = 0;
+    X509 *x = NULL, *cert = NULL;
+
+    in = BIO_new(BIO_s_file());
+    if (in == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_BUF_LIB);
+        goto end;
+    }
+
+    if (BIO_read_filename(in, file) <= 0) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_SYS_LIB);
+        goto end;
+    }
+
+    x = X509_new_ex(ctx->libctx, ctx->propq);
+    if (x == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_ASN1_LIB);
+        goto end;
+    }
+    if (type == SSL_FILETYPE_ASN1) {
+        j = ERR_R_ASN1_LIB;
+        cert = d2i_X509_bio(in, &x);
+    } else if (type == SSL_FILETYPE_PEM) {
+        j = ERR_R_PEM_LIB;
+        cert = PEM_read_bio_X509(in, &x, ctx->default_passwd_callback,
+                                 ctx->default_passwd_callback_userdata);
+    } else {
+        ERR_raise(ERR_LIB_SSL, SSL_R_BAD_SSL_FILETYPE);
+        goto end;
+    }
+    if (cert == NULL) {
+        ERR_raise(ERR_LIB_SSL, j);
+        goto end;
+    }
+
+    ret = SSL_CTX_set_sech_inner_certificate(ctx, x);
+ end:
+    X509_free(x);
+    BIO_free(in);
+    return ret;
+}
+
 int SSL_CTX_use_certificate_ASN1(SSL_CTX *ctx, int len, const unsigned char *d)
 {
     X509 *x;
@@ -369,6 +500,7 @@ int SSL_CTX_use_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey)
     }
     return ssl_set_pkey(ctx->cert, pkey, ctx);
 }
+
 
 int SSL_CTX_use_PrivateKey_file(SSL_CTX *ctx, const char *file, int type)
 {

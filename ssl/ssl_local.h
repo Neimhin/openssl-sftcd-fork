@@ -1101,6 +1101,7 @@ struct ssl_ctx_st {
         size_t sech_symmetric_key_len;
         char * sech_inner_servername;
         size_t sech_inner_servername_len;
+        struct cert_st * sech_inner_cert;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
     } ext;
@@ -1599,6 +1600,7 @@ struct ssl_connection_st {
         char *hostname;
 #ifndef OPENSSL_NO_ECH
         SSL_CONNECTION_ECH ech;
+        struct cert_st * sech_inner_cert;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */

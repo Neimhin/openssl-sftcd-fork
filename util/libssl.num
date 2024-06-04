@@ -609,5 +609,10 @@ OSSL_ech_find_echconfigs                ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_CTX_set_sech_version                ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_CTX_set_sech_symmetric_key          ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_CTX_set_sech_inner_servername       ?	3_4_0	EXIST::FUNCTION:ECH
-SSL_sech_get_status                     ?	3_4_0	EXIST::FUNCTION:ECH
-SSL_CTX_set_sech_inner_cert_and_key_filenames ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_certificate      ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_set_sech_inner_PrivateKey           ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_get_sech_status                     ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_cert_and_key_files ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_certificate_file ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_PrivateKey_file  ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_PrivateKey       ?	3_4_0	EXIST::FUNCTION:ECH
