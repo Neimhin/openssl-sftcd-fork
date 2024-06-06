@@ -1097,11 +1097,11 @@ struct ssl_ctx_st {
         unsigned char *alpn_outer; /* Outer ALPN (if any) */
         size_t alpn_outer_len;
         int sech_version;
+        struct cert_st * sech_inner_cert;
         unsigned char * sech_symmetric_key;
-        size_t sech_symmetric_key_len;
+                 size_t sech_symmetric_key_len;
         char * sech_inner_servername;
         size_t sech_inner_servername_len;
-        struct cert_st * sech_inner_cert;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
     } ext;
@@ -1602,10 +1602,12 @@ struct ssl_connection_st {
         SSL_CONNECTION_ECH ech;
         struct cert_st * sech_inner_cert;
         unsigned char * sech_symmetric_key;
-        size_t sech_symmetric_key_len;
+                 size_t sech_symmetric_key_len;
         int sech_version;
         unsigned char * sech_inner_servername;
-        size_t sech_inner_servername_len;
+                 size_t sech_inner_servername_len;
+        char * sech_peer_inner_servername;
+        size_t sech_peer_inner_servername_len;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */
