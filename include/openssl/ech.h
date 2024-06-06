@@ -109,7 +109,6 @@ int SSL_CTX_set_sech_inner_certificate(SSL_CTX *ctx, X509 *x);
 int SSL_CTX_set_sech_inner_certificate_file(SSL_CTX *ctx, const char *file, int type);
 int SSL_CTX_set_sech_inner_PrivateKey_file(SSL_CTX *ctx, char*pkey_file, int type);
 int SSL_CTX_set_sech_inner_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey);
-int SSL_CTX_set_sech_inner_PrivateKey(SSL_CTX *ssl, EVP_PKEY *pkey);
 int SSL_get_sech_status(SSL * s);
 int SSL_set_sech_inner_PrivateKey(SSL *ssl, EVP_PKEY *pkey);
 

@@ -955,14 +955,13 @@ static int ech_roundtrip_test(int idx)
                                          SSL_ERROR_NONE)))
         goto end;
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
-    X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         goto end;
     }
     int check_host = X509_check_host(server_certificate, "server.example", 0, 0, NULL);
-    fprintf(stderr, "check host (server.example): %i\n", check_host);
+    if(verbose)fprintf(stderr, "check host (server.example): %i\n", check_host);
     serverstatus = SSL_ech_get_status(serverssl, &sinner, &souter);
     if (verbose)
         TEST_info("ech_roundtrip_test: server status %d, %s, %s",
@@ -1031,8 +1030,7 @@ static int ech_server_normal_client(int idx)
                                          SSL_ERROR_NONE)))
         goto end;
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
-    X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         goto end;
@@ -2465,7 +2463,6 @@ static int sech2_tried_but_not_accepted(int idx)
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
     X509 * client_certificate = SSL_get_certificate(clientssl);
     if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         return 0;
@@ -2529,9 +2526,7 @@ static int sech2_sanity_check_certs(int idx)
 
     // confirm that the returned certificate is for the 'outer' server.example
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
-    // X509 * client_certificate = SSL_get_certificate(clientssl);
-    X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         return 0;
