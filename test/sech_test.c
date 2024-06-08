@@ -2538,6 +2538,31 @@ static int sech2_sanity_check_certs(int idx)
     return 1;
 }
 
+int sech2_roundtrip_accept__servername_cb(SSL *s, int *al, void *arg)
+{
+    char * inner_sni = NULL;
+    char * outer_sni = NULL;
+    SSL_CTX * inner_ctx = (SSL_CTX *) arg;
+    char * servername = SSL_get_servername(s, TLSEXT_NAMETYPE_host_name);
+    int sechrv = SSL_sech_get_status(s, &inner_sni, &outer_sni);
+
+    if(servername != NULL && sechrv == SSL_SECH_STATUS_SUCCESS)
+    {
+      int check_host = X509_check_host(inner_ctx->cert, servername, 0, 0, NULL);
+      if(check_host == 1)
+      {
+          fprintf(stderr, "sech2_roundtrip_accept__servername_cb: switching context\n");
+          SSL_set_SSL_CTX(s, inner_ctx);
+      } else
+      {
+          fprintf(stderr, "sech2_roundtrip_accept__servername_cb: using main context\n");
+      }
+    }
+
+    fprintf(stderr, "inner_ctx set\n");
+    return 1;
+}
+
 static int sech2_roundtrip_accept(int idx)
 {
     char * inner_cert = test_mk_file_path(certsdir, "inner.crt");
@@ -2547,7 +2572,16 @@ static int sech2_roundtrip_accept(int idx)
     char * inner_servername = "inner.com";
     char * outer_servername = "outer.com";
     SSL_CTX *cctx = NULL, *sctx = NULL;
+    SSL_CTX *inner_sctx = NULL;
+    inner_sctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method());
+    if(!TEST_ptr(inner_sctx)) return 0; // TODO cleanup/free
+    SSL_CTX_set_min_proto_version(inner_sctx, TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(inner_sctx, TLS1_3_VERSION);
+    if(!TEST_int_eq(SSL_CTX_use_certificate_file(inner_sctx, inner_cert, SSL_FILETYPE_PEM), 1)) return 0; // TODO cleanup/free
+                                                                             if(!TEST_int_eq(SSL_CTX_use_PrivateKey_file(inner_sctx, inner_key, SSL_FILETYPE_PEM), 1)) return 0; // TODO cleanup/free
+                                                                             if(!TEST_int_eq(SSL_CTX_check_private_key(inner_sctx), 1)) return 0; // TODO cleanup/free
 
+    if(verbose) fprintf(stderr, "inner_sctx private key checked\n");
 
 //     // let's read the inner certificate
 //     BIO *in;
@@ -2567,6 +2601,9 @@ static int sech2_roundtrip_accept(int idx)
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, outer_cert, outer_key)))
         return 0;
+
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_accept__servername_cb))) return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) inner_sctx))) return 0;
     SSL_CTX_set_sech_inner_certificate_file(sctx, inner_cert, SSL_FILETYPE_PEM);
     SSL_CTX_set_sech_inner_PrivateKey_file(sctx, inner_key, SSL_FILETYPE_PEM);
     SSL_CTX_set_sech_version(cctx, 2);
@@ -2581,7 +2618,6 @@ static int sech2_roundtrip_accept(int idx)
     // SSL_CTX_set_sech_inner_cert_and_key_files(sctx, inner_cert, inner_key);
     SSL * serverssl = NULL;
     SSL * clientssl = NULL;
-    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_tried_but_not_accepted__servername_callback))) return 0;
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
     if (!TEST_true(SSL_set_tlsext_host_name(clientssl, outer_servername)))                                           return 0;
     if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))                                     return 0;
@@ -2595,8 +2631,10 @@ static int sech2_roundtrip_accept(int idx)
         return 0;
     }
 
-    int client_status = SSL_get_sech_status(clientssl);
-    int server_status = SSL_get_sech_status(serverssl);
+    char * client_inner_sni = NULL, * client_outer_sni = NULL;
+    char * server_inner_sni = NULL, * server_outer_sni = NULL;
+    int client_status = SSL_sech_get_status(clientssl, &client_inner_sni, &client_outer_sni);
+    int server_status = SSL_sech_get_status(serverssl, &server_inner_sni, &server_outer_sni);
     if(!TEST_int_eq(client_status, SSL_SECH_STATUS_SUCCESS)) return 0;
     if(!TEST_int_eq(server_status, SSL_SECH_STATUS_SUCCESS)) return 0;
     return 1;

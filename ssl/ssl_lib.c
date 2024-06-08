@@ -915,6 +915,8 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
 #ifndef OPENSSL_NO_ECH
     s->ext.sech_version = ctx->ext.sech_version;
     s->ext.sech_inner_cert = ssl_cert_dup(ctx->ext.sech_inner_cert);
+    s->ext.sech_peer_inner_servername = NULL;
+    s->ext.sech_peer_inner_servername_len = -1;
     if(ctx->ext.sech_symmetric_key != NULL) {
         unsigned char * ptr = ctx->ext.sech_symmetric_key;
         size_t len = ctx->ext.sech_symmetric_key_len;

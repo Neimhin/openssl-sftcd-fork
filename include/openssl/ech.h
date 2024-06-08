@@ -110,6 +110,7 @@ int SSL_CTX_set_sech_inner_certificate_file(SSL_CTX *ctx, const char *file, int 
 int SSL_CTX_set_sech_inner_PrivateKey_file(SSL_CTX *ctx, char*pkey_file, int type);
 int SSL_CTX_set_sech_inner_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey);
 int SSL_get_sech_status(SSL * s);
+int SSL_sech_get_status(SSL *s, char **inner_sni, char **outer_sni);
 int SSL_set_sech_inner_PrivateKey(SSL *ssl, EVP_PKEY *pkey);
 
 int SSL_ech_set_server_names(SSL *s, const char *inner_name,

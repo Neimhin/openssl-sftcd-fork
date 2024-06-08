@@ -1762,7 +1762,7 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 
     if(s->ext.sech_version == 2 && ech_innerflag == -1)
     {
-        // try decrypt the clienthello->random
+        // try decrypt the clienthello->random TODO
         // dummy SECH acceptance (random is all zeros)
         int all_zero = 1;
         for(int j = 0; j < SSL3_RANDOM_SIZE; j++) {
