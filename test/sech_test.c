@@ -39,6 +39,16 @@ static char *privkey = NULL;
 static char *rootcert = NULL;
 static int verbose = 0;
 
+
+X509 * load_cert(char*cert_file) {
+    X509*cert = NULL;
+    FILE*file = fopen(cert_file, "r");
+    if(!file) return NULL;
+    cert = PEM_read_X509(file, NULL, NULL, NULL);
+    fclose(file);
+    return cert;
+}
+
 /*
  * ECHConfigList test vectors - the first set are
  * syntactically valid but some have no ECHConfig
@@ -955,14 +965,13 @@ static int ech_roundtrip_test(int idx)
                                          SSL_ERROR_NONE)))
         goto end;
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
-    X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         goto end;
     }
     int check_host = X509_check_host(server_certificate, "server.example", 0, 0, NULL);
-    fprintf(stderr, "check host (server.example): %i\n", check_host);
+    if(verbose)fprintf(stderr, "check host (server.example): %i\n", check_host);
     serverstatus = SSL_ech_get_status(serverssl, &sinner, &souter);
     if (verbose)
         TEST_info("ech_roundtrip_test: server status %d, %s, %s",
@@ -1031,8 +1040,7 @@ static int ech_server_normal_client(int idx)
                                          SSL_ERROR_NONE)))
         goto end;
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
-    X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         goto end;
@@ -2449,7 +2457,6 @@ static int sech2_tried_but_not_accepted(int idx)
     SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
     SSL_CTX_set_sech_version(cctx, 2);
     SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
-    // SSL_CTX_set_sech_inner_servername(...);
     SSL_CTX_set_tlsext_servername_callback(sctx, sech2_tried_but_not_accepted__servername_callback);
     SSL * serverssl = NULL;
     SSL * clientssl = NULL;
@@ -2465,7 +2472,6 @@ static int sech2_tried_but_not_accepted(int idx)
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
     X509 * client_certificate = SSL_get_certificate(clientssl);
     if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         return 0;
@@ -2529,9 +2535,7 @@ static int sech2_sanity_check_certs(int idx)
 
     // confirm that the returned certificate is for the 'outer' server.example
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
-    // X509 * client_certificate = SSL_get_certificate(clientssl);
-    X509_print_ex_fp(stderr, server_certificate, 0, 0);
-    // X509_print_ex_fp(stderr, client_certificate, 0, 0);
+    if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) {
         // shouldn't happen?
         return 0;
@@ -2543,20 +2547,80 @@ static int sech2_sanity_check_certs(int idx)
     return 1;
 }
 
+typedef struct {
+    X509 * inner_cert;
+    SSL_CTX * inner_ctx;
+} SECH_SERVERNAME_ARG;
+
+int sech2_roundtrip_accept__servername_cb(SSL *s, int *al, void *arg)
+{
+    fprintf(stderr, "sech2_roundtrip_accept__servername_cb\n");
+    char * inner_sni = NULL;
+    char * outer_sni = NULL;
+    SECH_SERVERNAME_ARG * servername_arg = (SECH_SERVERNAME_ARG*) arg;
+    const char * servername = SSL_get_servername(s, TLSEXT_NAMETYPE_host_name);
+    int sechrv = SSL_get_sech_status(s, &inner_sni, &outer_sni);
+    if(verbose) fprintf(stderr, "sechrv: %i\n", sechrv);
+    if(verbose) fprintf(stderr, "servername: %s\n", servername);
+    if(servername != NULL && sechrv == SSL_SECH_STATUS_SUCCESS)
+    {
+      int check_host = X509_check_host(servername_arg->inner_cert, servername, 0, 0, NULL);
+      if(check_host == 1)
+      {
+          fprintf(stderr, "sech2_roundtrip_accept__servername_cb: switching context\n");
+          SSL_set_SSL_CTX(s, servername_arg->inner_ctx);
+      } else
+      {
+          fprintf(stderr, "sech2_roundtrip_accept__servername_cb: using main context\n");
+      }
+    }
+
+    fprintf(stderr, "inner_ctx set\n");
+    return 1;
+}
+
 static int sech2_roundtrip_accept(int idx)
 {
-    char * inner_cert = test_mk_file_path(certsdir, "inner.crt");
-    char * inner_key  = test_mk_file_path(certsdir, "inner.key");
-    char * outer_cert = test_mk_file_path(certsdir, "outer.crt");
-    char * outer_key  = test_mk_file_path(certsdir, "outer.key");
+    char * inner_cert_file = test_mk_file_path(certsdir, "inner.crt");
+    char * inner_key_file  = test_mk_file_path(certsdir, "inner.key");
+    char * outer_cert_file = test_mk_file_path(certsdir, "outer.crt");
+    char * outer_key_file  = test_mk_file_path(certsdir, "outer.key");
     char * inner_servername = "inner.com";
     char * outer_servername = "outer.com";
+    X509 * inner_cert = load_cert(inner_cert_file);
+    if(inner_cert == NULL) return 0;
+
+    if(verbose) {
+      X509_NAME *subject = X509_get_subject_name(inner_cert);
+      if (subject) {
+          char *subject_str = X509_NAME_oneline(subject, NULL, 0);
+          if (subject_str) {
+              printf("Inner certificate subject: %s\n", subject_str);
+              OPENSSL_free(subject_str);
+          }
+      }
+    }
+
+
     SSL_CTX *cctx = NULL, *sctx = NULL;
+    SSL_CTX *inner_sctx = NULL;
+    inner_sctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method());
+    if(!TEST_ptr(inner_sctx)) return 0; // TODO cleanup/free
+    SECH_SERVERNAME_ARG servername_arg = {.inner_cert=inner_cert, .inner_ctx=inner_sctx}; 
+    SSL_CTX_set_min_proto_version(inner_sctx, TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(inner_sctx, TLS1_3_VERSION);
+    if(!TEST_int_eq(SSL_CTX_use_certificate(inner_sctx, inner_cert), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_use_PrivateKey_file(inner_sctx, inner_key_file, SSL_FILETYPE_PEM), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_check_private_key(inner_sctx), 1)) return 0; // TODO cleanup/free
+
+    if(verbose) fprintf(stderr, "inner_sctx private key checked\n");
     if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
                                        TLS_client_method(),
                                        TLS1_3_VERSION, TLS1_3_VERSION,
-                                       &sctx, &cctx, outer_cert, outer_key)))
+                                       &sctx, &cctx, outer_cert_file, outer_key_file)))
         return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_accept__servername_cb))) return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
     char key[4] = {0xab, 0xab, 0xab, 0xab};
     size_t key_len = sizeof(key);
@@ -2566,10 +2630,109 @@ static int sech2_roundtrip_accept(int idx)
     SSL_CTX_set_sech_symmetric_key(sctx, (char*)key, key_len);
     SSL_CTX_set_sech_version(sctx, 2);
     SSL_CTX_set_sech_inner_servername(sctx, inner_servername, 0); // len = 0 -> use strlen
-    // SSL_CTX_set_sech_inner_cert_and_key_files(sctx, inner_cert, inner_key);
     SSL * serverssl = NULL;
     SSL * clientssl = NULL;
-    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_tried_but_not_accepted__servername_callback))) return 0;
+    if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
+    if (!TEST_true(SSL_set_tlsext_host_name(clientssl, outer_servername)))                                           return 0;
+    if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))                                     return 0;
+    X509 * server_certificate = SSL_get_peer_certificate(clientssl);
+    // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
+    if(server_certificate == NULL) return 0;
+    int check_host = X509_check_host(server_certificate, inner_servername, 0, 0, NULL);
+    if(check_host != 1) {
+        if(verbose)
+            TEST_info("sech2_roundtrip_accept got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
+        return 0;
+    }
+
+    char * client_inner_sni = NULL, * client_outer_sni = NULL;
+    char * server_inner_sni = NULL, * server_outer_sni = NULL;
+    int client_status = SSL_get_sech_status(clientssl, &client_inner_sni, &client_outer_sni);
+    int server_status = SSL_get_sech_status(serverssl, &server_inner_sni, &server_outer_sni);
+    if(!TEST_int_eq(client_status, SSL_SECH_STATUS_SUCCESS)) return 0;
+    if(!TEST_int_eq(server_status, SSL_SECH_STATUS_SUCCESS)) return 0;
+    return 1;
+}
+
+int sech2_roundtrip_wrong_key__servername_cb(SSL *s, int *al, void *arg)
+{
+    fprintf(stderr, "sech2_roundtrip_wrong_key__servername_cb\n");
+    char * inner_sni = NULL;
+    char * outer_sni = NULL;
+    SECH_SERVERNAME_ARG * servername_arg = (SECH_SERVERNAME_ARG*) arg;
+    const char * servername = SSL_get_servername(s, TLSEXT_NAMETYPE_host_name);
+    int sechrv = SSL_get_sech_status(s, &inner_sni, &outer_sni);
+    if(verbose) fprintf(stderr, "sechrv: %i\n", sechrv);
+    if(servername != NULL && sechrv == SSL_SECH_STATUS_SUCCESS)
+    {
+      int check_host = X509_check_host(servername_arg->inner_cert, servername, 0, 0, NULL);
+      if(check_host == 1)
+      {
+          fprintf(stderr, "sech2_roundtrip_wrong_key__servername_cb: switching context\n");
+          SSL_set_SSL_CTX(s, servername_arg->inner_ctx);
+      } else
+      {
+          fprintf(stderr, "sech2_roundtrip_wrong_key__servername_cb: using main context\n");
+      }
+    }
+
+    fprintf(stderr, "inner_ctx set\n");
+    return 1;
+}
+
+static int sech2_roundtrip_wrong_key(int idx)
+{
+    char * inner_cert_file = test_mk_file_path(certsdir, "inner.crt");
+    char * inner_key_file  = test_mk_file_path(certsdir, "inner.key");
+    char * outer_cert_file = test_mk_file_path(certsdir, "outer.crt");
+    char * outer_key_file  = test_mk_file_path(certsdir, "outer.key");
+    char * inner_servername = "inner.com";
+    char * outer_servername = "outer.com";
+    X509 * inner_cert = load_cert(inner_cert_file);
+    if(inner_cert == NULL) return 0;
+
+    if(verbose) {
+      X509_NAME *subject = X509_get_subject_name(inner_cert);
+      if (subject) {
+          char *subject_str = X509_NAME_oneline(subject, NULL, 0);
+          if (subject_str) {
+              printf("Inner certificate subject: %s\n", subject_str);
+              OPENSSL_free(subject_str);
+          }
+      }
+    }
+
+
+    SSL_CTX *cctx = NULL, *sctx = NULL;
+    SSL_CTX *inner_sctx = NULL;
+    inner_sctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method());
+    if(!TEST_ptr(inner_sctx)) return 0; // TODO cleanup/free
+    SECH_SERVERNAME_ARG servername_arg = {.inner_cert=inner_cert, .inner_ctx=inner_sctx}; 
+    SSL_CTX_set_min_proto_version(inner_sctx, TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(inner_sctx, TLS1_3_VERSION);
+    if(!TEST_int_eq(SSL_CTX_use_certificate(inner_sctx, inner_cert), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_use_PrivateKey_file(inner_sctx, inner_key_file, SSL_FILETYPE_PEM), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_check_private_key(inner_sctx), 1)) return 0; // TODO cleanup/free
+
+    if(verbose) fprintf(stderr, "inner_sctx private key checked\n");
+    if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
+                                       TLS_client_method(),
+                                       TLS1_3_VERSION, TLS1_3_VERSION,
+                                       &sctx, &cctx, outer_cert_file, outer_key_file)))
+        return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_wrong_key__servername_cb))) return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
+    SSL_CTX_set_sech_version(cctx, 2);
+    char key[4] = {0xab, 0xab, 0xab, 0xab};
+    size_t key_len = sizeof(key);
+    SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
+    SSL_CTX_set_sech_version(cctx, 2);
+    SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
+    SSL_CTX_set_sech_symmetric_key(sctx, (char*)key, key_len);
+    SSL_CTX_set_sech_version(sctx, 2);
+    SSL_CTX_set_sech_inner_servername(sctx, inner_servername, 0); // len = 0 -> use strlen
+    SSL * serverssl = NULL;
+    SSL * clientssl = NULL;
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
     if (!TEST_true(SSL_set_tlsext_host_name(clientssl, outer_servername)))                                           return 0;
     if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))                                     return 0;
@@ -2579,17 +2742,18 @@ static int sech2_roundtrip_accept(int idx)
     int check_host = X509_check_host(server_certificate, inner_servername, 0, 0, NULL);
     if(check_host != 1) {
         if(verbose)
-            TEST_info("sech2_roundtrip_accept got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
+            TEST_info("sech2_roundtrip_wrong_key got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
         return 0;
     }
 
-    int client_status = SSL_get_sech_status(clientssl);
-    int server_status = SSL_get_sech_status(serverssl);
+    char * client_inner_sni = NULL, * client_outer_sni = NULL;
+    char * server_inner_sni = NULL, * server_outer_sni = NULL;
+    int client_status = SSL_get_sech_status(clientssl, &client_inner_sni, &client_outer_sni);
+    int server_status = SSL_get_sech_status(serverssl, &server_inner_sni, &server_outer_sni);
     if(!TEST_int_eq(client_status, SSL_SECH_STATUS_SUCCESS)) return 0;
     if(!TEST_int_eq(server_status, SSL_SECH_STATUS_SUCCESS)) return 0;
     return 1;
 }
-
 
 int setup_tests(void)
 {
@@ -2647,7 +2811,8 @@ int setup_tests(void)
     ADD_ALL_TESTS(sanity_check_fail, 1);
     ADD_ALL_TESTS(sech2_tried_but_not_accepted, 1);
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
-    ADD_ALL_TESTS(sech2_roundtrip_accept, 10);
+    ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
+    ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
     return 1;
 err:

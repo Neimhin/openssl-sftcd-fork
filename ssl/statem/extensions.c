@@ -1103,6 +1103,26 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         return 0;
     }
 
+#ifndef OPENSSL_NO_ECH
+    if(s->ext.sech_version == 2)
+    {
+        // try decrypt the clienthello->random TODO
+        // dummy SECH acceptance (random is all zeros)
+        int all_zero = 1;
+        for(int j = 0; j < SSL3_RANDOM_SIZE; j++) {
+            if(s->s3.client_random[j] == 0) continue;
+            all_zero = 0;
+            break;
+        }
+        if(all_zero) {
+            s->ext.sech_peer_inner_servername = OPENSSL_strdup("inner.com");
+            s->ext.hostname = s->ext.sech_peer_inner_servername;
+            s->session->ext.hostname = s->ext.sech_peer_inner_servername;
+            fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);
+        }
+    }
+#endif
+
     if (sctx->ext.servername_cb != NULL)
         ret = sctx->ext.servername_cb(ssl, &altmp,
                                       sctx->ext.servername_arg);

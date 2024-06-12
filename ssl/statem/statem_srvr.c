@@ -1735,6 +1735,7 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         }
     }
 
+
     if (!PACKET_copy_all(&compression, clienthello->compressions,
                          MAX_COMPRESSIONS_SIZE,
                          &clienthello->compressions_len)) {
@@ -1785,6 +1786,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
     DOWNGRADE dgrd = DOWNGRADE_NONE;
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
     SSL *ssl = SSL_CONNECTION_GET_SSL(s);
+
 
     /* Finished parsing the ClientHello, now we can start processing it */
     /* Give the ClientHello callback a crack at things */
@@ -2034,6 +2036,32 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         /* SSLfatal() already called */
         goto err;
     }
+
+#ifndef OPENSSL_NO_ECH
+    OSSL_TRACE_BEGIN(TLS) {
+      fprintf(stderr, "clienthello->random:\n");
+      BIO_dump_fp(stderr, clienthello->random, SSL3_RANDOM_SIZE);
+    } OSSL_TRACE_END(TLS);
+
+    if(s->ext.sech_version == 2)
+    {
+        // try decrypt the clienthello->random TODO
+        // dummy SECH acceptance (random is all zeros)
+        int all_zero = 1;
+        for(int j = 0; j < SSL3_RANDOM_SIZE; j++) {
+            if(clienthello->random[j] == 0) continue;
+            all_zero = 0;
+            break;
+        }
+        if(all_zero) {
+            s->ext.sech_peer_inner_servername = OPENSSL_strdup("inner.com");
+            s->ext.hostname = s->ext.sech_peer_inner_servername;
+            s->session->ext.hostname = s->ext.sech_peer_inner_servername;
+            fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);
+        }
+    }
+#endif
+
 
     /*
      * Check if we want to use external pre-shared secret for this handshake

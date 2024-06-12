@@ -913,6 +913,21 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
 
     s->ssl_pkey_num = SSL_PKEY_NUM + ctx->sigalg_list_len;
 #ifndef OPENSSL_NO_ECH
+    s->ext.sech_version = ctx->ext.sech_version;
+    s->ext.sech_inner_cert = ssl_cert_dup(ctx->ext.sech_inner_cert);
+    s->ext.sech_peer_inner_servername = NULL;
+    if(ctx->ext.sech_symmetric_key != NULL) {
+        unsigned char * ptr = ctx->ext.sech_symmetric_key;
+        size_t len = ctx->ext.sech_symmetric_key_len;
+        s->ext.sech_symmetric_key = OPENSSL_memdup(ptr, len);
+        if(s->ext.sech_symmetric_key == NULL) goto sslerr;
+        s->ext.sech_symmetric_key_len = len;
+    }
+    if(ctx->ext.sech_inner_servername != NULL) {
+        char * ptr = ctx->ext.sech_inner_servername;
+        s->ext.sech_inner_servername = OPENSSL_strdup(ptr);
+        if(s->ext.sech_inner_servername == NULL) goto sslerr;
+    }
     s->ext.ech.attempted_type = TLSEXT_TYPE_ech;
     s->ext.ech.ncfgs = ctx->ext.nechs;
     if (s->ext.ech.ncfgs > 0) {

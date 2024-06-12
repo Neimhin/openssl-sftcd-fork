@@ -13,6 +13,7 @@
 #include <time.h>
 #include <assert.h>
 #include "../ssl_local.h"
+#include "../ech_local.h"
 #include "statem_local.h"
 #include <openssl/buffer.h>
 #include <openssl/rand.h>
@@ -1452,7 +1453,7 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
 
 #ifndef OPENSSL_NO_ECH
     /* use different client_random fields for inner and outer */
-    if (s->ext.ech.cfgs != NULL && s->ext.ech.ch_depth == 1)
+    if (s->ext.ech.cfgs != NULL && s->ext.ech.ch_depth == OSSL_ECH_INNER_CH_TYPE)
         p = s->ext.ech.client_random;
     else
 #endif
@@ -1475,11 +1476,28 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
         i = (s->hello_retry_request == SSL_HRR_NONE);
     }
 
-    if (i && ssl_fill_hello_random(s, 0, p, sizeof(s->s3.client_random),
-                                   DOWNGRADE_NONE) <= 0) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return CON_FUNC_ERROR;
+#ifndef OPENSSL_NO_ECH
+    if(s->ext.sech_version == 0 || s->ext.ech.ch_depth == OSSL_ECH_INNER_CH_TYPE) // do non-SECH hello random
+#endif
+    {
+        int as_server = 0;
+        if (i && ssl_fill_hello_random(s, as_server, p, sizeof(s->s3.client_random),
+                                       DOWNGRADE_NONE) <= 0) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
     }
+#ifndef OPENSSL_NO_ECH
+    else { // do SECH hello random (encrypted SNI in random)
+        // TODO: create ext.sech_version field in SSL_CONNECTION objects
+        if(s->ext.sech_version == 2) {
+            // TODO: encrypt sni and put into p
+            unsigned char bytes[SSL3_RANDOM_SIZE] = {0};
+            memcpy(p, bytes, SSL3_RANDOM_SIZE);
+            fprintf(stderr, "SECH: using sech_version 2 CH random\n");
+        }
+    }
+#endif
 
     /*-
      * version indicates the negotiated version: for example from

@@ -142,7 +142,7 @@ int SSL_ech_set_outer_alpn_protos(SSL *s, const unsigned char *protos,
 int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version);
 int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char * key, size_t key_len);
 int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len);
-int SSL_get_sech_status(SSL * s);
+int SSL_get_sech_status(SSL * s, char **inner_sni, char **outer_sni);
 
 void OSSL_ECH_INFO_free(OSSL_ECH_INFO *info, int count);
 int OSSL_ECH_INFO_print(BIO *out, OSSL_ECH_INFO *info, int count);
