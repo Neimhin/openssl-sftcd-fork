@@ -2552,28 +2552,11 @@ static int sech2_roundtrip_accept(int idx)
     char * inner_servername = "inner.com";
     char * outer_servername = "outer.com";
     SSL_CTX *cctx = NULL, *sctx = NULL;
-
-
-//     // let's read the inner certificate
-//     BIO *in;
-//     X509 *x = NULL, *cert = NULL;
-//     in = BIO_new(BIO_s_file());
-//     if(in == NULL)                              return 0;
-//     if(BIO_read_filename(in, inner_cert) <= 0)  return 0;
-//     x = X509_new_ex(sctx->libctx, sctx->propq);
-//     if(x == NULL)                               return 1;
-//     cert = PEM_read_bio_X509(in, &x, sctx->default_passwd_callback, sctx->default_passwd_callback_userdata);
-//     if(cert == NULL) return 0;
-
-
-
     if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
                                        TLS_client_method(),
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, outer_cert, outer_key)))
         return 0;
-    SSL_CTX_set_sech_inner_certificate_file(sctx, inner_cert, SSL_FILETYPE_PEM);
-    SSL_CTX_set_sech_inner_PrivateKey_file(sctx, inner_key, SSL_FILETYPE_PEM);
     SSL_CTX_set_sech_version(cctx, 2);
     char key[4] = {0xab, 0xab, 0xab, 0xab};
     size_t key_len = sizeof(key);
