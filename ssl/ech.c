@@ -5964,4 +5964,100 @@ err:
     return rv;
 }
 
+int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len)
+{
+    if (key == NULL) return 0;
+    if (ctx == NULL) return 0;
+    ctx->ext.sech_symmetric_key = OPENSSL_malloc(key_len);
+    if(ctx->ext.sech_symmetric_key == NULL) return 0;
+    ctx->ext.sech_symmetric_key_len = key_len;
+    for(int i = 0; i < key_len; ++i) ctx->ext.sech_symmetric_key[i] = key[i];
+    return 1;
+}
+
+int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version)
+{
+  switch(version)
+  {
+    case 2:
+        ctx->ext.sech_version = version;
+        return 1;
+    default:
+        return 0;
+  }
+}
+
+int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len)
+{
+    if(inner_servername_len == 0 && inner_servername != NULL) {
+      inner_servername_len = strlen(inner_servername);
+    }
+    ctx->ext.sech_inner_servername_len = inner_servername_len;
+    ctx->ext.sech_inner_servername = inner_servername;
+    return 1;
+}
+
+int SSL_CTX_set_sech_inner_cert_and_key_files(SSL_CTX *ctx, char* cert_filename, char*key_filename)
+{
+    // TODO not yet implemented
+    return 0;
+}
+
+static int ssl_set_cert(CERT *c, X509 *x509, SSL_CTX *ctx);
+static int ssl_set_cert(CERT *c, X509 *x, SSL_CTX *ctx)
+{
+    EVP_PKEY *pkey;
+    size_t i;
+
+    pkey = X509_get0_pubkey(x);
+    if (pkey == NULL) {
+        ERR_raise(ERR_LIB_SSL, SSL_R_X509_LIB);
+        return 0;
+    }
+
+    if (ssl_cert_lookup_by_pkey(pkey, &i, ctx) == NULL) {
+        ERR_raise(ERR_LIB_SSL, SSL_R_UNKNOWN_CERTIFICATE_TYPE);
+        return 0;
+    }
+
+    if (i == SSL_PKEY_ECC && !EVP_PKEY_can_sign(pkey)) {
+        ERR_raise(ERR_LIB_SSL, SSL_R_ECC_CERT_NOT_FOR_SIGNING);
+        return 0;
+    }
+
+    if (c->pkeys[i].privatekey != NULL) {
+        /*
+         * The return code from EVP_PKEY_copy_parameters is deliberately
+         * ignored. Some EVP_PKEY types cannot do this.
+         * coverity[check_return]
+         */
+        EVP_PKEY_copy_parameters(pkey, c->pkeys[i].privatekey);
+        ERR_clear_error();
+
+        if (!X509_check_private_key(x, c->pkeys[i].privatekey)) {
+            /*
+             * don't fail for a cert/key mismatch, just free current private
+             * key (when switching to a different cert & key, first this
+             * function should be used, then ssl_set_pkey
+             */
+            EVP_PKEY_free(c->pkeys[i].privatekey);
+            c->pkeys[i].privatekey = NULL;
+            /* clear error queue */
+            ERR_clear_error();
+        }
+    }
+
+    X509_free(c->pkeys[i].x509);
+    X509_up_ref(x);
+    c->pkeys[i].x509 = x;
+    c->key = &(c->pkeys[i]);
+
+    return 1;
+}
+
+int SSL_get_sech_status(SSL * s) {
+    // TODO not yet implemented
+    return SSL_SECH_STATUS_FAILED;
+}
+
 #endif

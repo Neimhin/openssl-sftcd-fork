@@ -74,6 +74,19 @@ typedef unsigned int u_int;
 #endif
 #include "internal/sockets.h"
 
+#ifndef OPENSSL_NO_ECH
+/*
+ * A lack of padding can expose information intended to be hidden via ECH,
+ * e.g. if only two inner CH SNI values were in live use. In that case we
+ * pad the Certificate, CertificateVerify and EncryptedExtensions handshake
+ * messages from the server. These are the  minimum lengths to which those
+ * will be padded in that case.
+ */
+# define ECH_CERTSPECIFIC_MIN 1808
+# define ECH_CERTVERSPECIFIC_MIN 480
+# define ECH_ENCEXTSPECIFIC_MIN 32
+#endif
+
 static int not_resumable_sess_cb(SSL *s, int is_forward_secure);
 static int sv_body(int s, int stype, int prot, unsigned char *context);
 static int www_body(int s, int stype, int prot, unsigned char *context);

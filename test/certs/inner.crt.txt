@@ -1,0 +1,56 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            48:1c:e4:40:11:34:dc:99:62:53:1c:15:32:ff:51:c4:e3:02:45:1a
+        Signature Algorithm: sha256WithRSAEncryption
+        Issuer: CN = inner.com
+        Validity
+            Not Before: May 30 14:48:04 2024 GMT
+            Not After : Oct  1 14:48:04 3023 GMT
+        Subject: CN = inner.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (2048 bit)
+                Modulus:
+                    00:bd:31:ee:17:e0:3f:5d:82:d6:d1:a5:b8:89:07:
+                    ba:b1:9b:ec:5c:02:58:46:95:d1:bb:f2:21:a3:71:
+                    51:b1:45:ba:51:cf:9c:b3:be:e4:c0:39:8d:81:d3:
+                    a3:f1:74:fb:c9:16:f6:39:a1:f0:08:60:59:89:41:
+                    01:14:f6:c9:65:f1:e2:5b:70:ff:f8:db:59:18:42:
+                    33:a7:02:d3:65:33:11:5e:27:c3:20:cc:10:87:dc:
+                    05:b8:56:5a:1a:64:de:c5:04:63:cc:a9:9f:cc:73:
+                    0f:04:b2:ac:e2:e6:e9:cc:4e:10:1c:7b:20:78:15:
+                    6e:fc:48:7b:fe:79:8c:29:06:fe:84:bf:ca:dc:15:
+                    5f:b9:da:fd:30:60:de:eb:13:86:e4:ff:5d:c1:19:
+                    e0:46:66:4b:98:e5:ae:ea:53:f5:66:7d:0e:94:c7:
+                    66:55:bb:6a:ed:ce:35:5b:32:d9:5d:cf:db:60:31:
+                    3f:ea:e6:1e:97:ce:b6:8a:d2:d2:ef:b4:0b:88:45:
+                    b2:8f:48:4b:d6:d2:b9:f5:11:2f:31:25:9c:f0:c4:
+                    f8:48:dd:9b:4d:3d:cc:fa:0f:15:86:da:97:da:fe:
+                    8b:fb:3c:5f:0b:4f:7b:54:f8:79:f7:61:94:5d:7b:
+                    df:0b:20:27:e7:5a:de:47:23:aa:02:46:6e:1e:b6:
+                    c3:c7
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Subject Alternative Name: 
+                DNS:inner.com, DNS:*.inner.com
+            X509v3 Subject Key Identifier: 
+                9D:2B:08:18:BC:EC:A8:7F:51:6A:DE:2E:19:13:CC:32:BE:BC:2B:D0
+    Signature Algorithm: sha256WithRSAEncryption
+    Signature Value:
+        b0:8c:da:81:d3:0d:63:33:b4:39:c9:b4:68:53:3e:ba:f2:2e:
+        8b:f1:1f:c3:9f:d9:21:7a:ff:2a:b3:a4:3c:f5:11:42:75:9b:
+        01:c8:a7:21:4a:1c:92:aa:00:8c:58:a1:41:15:d8:00:df:ef:
+        fe:8a:26:f0:b2:5b:72:70:49:c1:bd:9c:04:38:bb:a7:cd:ef:
+        8d:37:c2:04:c6:c7:b4:bd:1a:c6:ac:7b:62:e3:48:07:07:02:
+        59:d8:d9:80:25:89:dc:0e:54:67:f8:66:cc:d1:76:b6:33:1c:
+        69:ba:09:03:3c:57:9a:4d:51:7f:f0:b1:03:e5:cf:52:77:82:
+        af:dc:82:c7:7e:63:51:1f:90:b0:33:75:ec:6a:60:34:33:33:
+        ad:63:d8:8f:12:e1:a0:93:f3:dc:62:f0:cf:a5:74:7c:48:c0:
+        8a:4d:b7:58:4a:f2:47:1a:76:3d:92:7f:17:23:d5:d8:28:ac:
+        ad:46:07:ab:03:a1:c1:2d:c8:a2:82:39:70:1f:53:44:b6:74:
+        27:8f:a8:82:66:ad:ab:75:1f:4e:49:98:bd:0e:b3:26:0f:4f:
+        ae:64:6c:a9:d3:b5:b0:c9:89:86:66:24:30:48:36:df:5a:60:
+        7d:2c:92:37:44:ae:c8:a5:1a:c7:95:af:f0:b9:b0:b6:4a:21:
+        92:9c:1f:1b

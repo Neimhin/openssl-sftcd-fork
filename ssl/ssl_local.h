@@ -1093,6 +1093,12 @@ struct ssl_ctx_st {
         unsigned char *alpn_outer; /* Outer ALPN (if any) */
         size_t alpn_outer_len;
         OSSL_ECH_PAD_SIZES ech_pad_sizes; /* ECH padding sizes */
+        int sech_version;
+        char * sech_symmetric_key;
+        size_t sech_symmetric_key_len;
+        char * sech_inner_servername;
+        size_t sech_inner_servername_len;
+        struct cert_st * sech_inner_cert;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
     } ext;
