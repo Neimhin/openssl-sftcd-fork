@@ -2037,30 +2037,6 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         goto err;
     }
 
-#ifndef OPENSSL_NO_ECH
-    OSSL_TRACE_BEGIN(TLS) {
-      fprintf(stderr, "clienthello->random:\n");
-      BIO_dump_fp(stderr, clienthello->random, SSL3_RANDOM_SIZE);
-    } OSSL_TRACE_END(TLS);
-
-    if(s->ext.sech_version == 2)
-    {
-        // try decrypt the clienthello->random TODO
-        // dummy SECH acceptance (random is all zeros)
-        int all_zero = 1;
-        for(int j = 0; j < SSL3_RANDOM_SIZE; j++) {
-            if(clienthello->random[j] == 0) continue;
-            all_zero = 0;
-            break;
-        }
-        if(all_zero) {
-            s->ext.sech_peer_inner_servername = OPENSSL_strdup("inner.com");
-            s->ext.hostname = s->ext.sech_peer_inner_servername;
-            s->session->ext.hostname = s->ext.sech_peer_inner_servername;
-            fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);
-        }
-    }
-#endif
 
 
     /*

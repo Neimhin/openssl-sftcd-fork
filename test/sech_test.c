@@ -2724,11 +2724,13 @@ static int sech2_roundtrip_wrong_key(int idx)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
     char key[4] = {0xab, 0xab, 0xab, 0xab};
+    char server_key[4] = {0xba, 0xba, 0xba, 0xba};
     size_t key_len = sizeof(key);
+    size_t server_key_len = sizeof(server_key);
     SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
     SSL_CTX_set_sech_version(cctx, 2);
     SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
-    SSL_CTX_set_sech_symmetric_key(sctx, (char*)key, key_len);
+    SSL_CTX_set_sech_symmetric_key(sctx, (char*)server_key, server_key_len);
     SSL_CTX_set_sech_version(sctx, 2);
     SSL_CTX_set_sech_inner_servername(sctx, inner_servername, 0); // len = 0 -> use strlen
     SSL * serverssl = NULL;
@@ -2739,10 +2741,10 @@ static int sech2_roundtrip_wrong_key(int idx)
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
     if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) return 0;
-    int check_host = X509_check_host(server_certificate, inner_servername, 0, 0, NULL);
+    int check_host = X509_check_host(server_certificate, outer_servername, 0, 0, NULL);
     if(check_host != 1) {
         if(verbose)
-            TEST_info("sech2_roundtrip_wrong_key got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
+            TEST_info("sech2_roundtrip_wrong_key got wrong servername in server cert: expected %s: check_host=%i\n", inner_servername, check_host);
         return 0;
     }
 

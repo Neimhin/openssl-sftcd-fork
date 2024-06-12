@@ -6006,9 +6006,6 @@ int SSL_CTX_set_sech_inner_cert_and_key_files(SSL_CTX *ctx, char* cert_filename,
 int SSL_get_sech_status(SSL * ssl, char **inner_sni, char **outer_sni)
 {
     SSL_CONNECTION *s = SSL_CONNECTION_FROM_SSL(ssl);
-    char * sinner;
-    char * souter;
-    // TODO not yet implemented
     if(s->ext.sech_peer_inner_servername != NULL) {
         *inner_sni = s->ext.sech_peer_inner_servername;
         return SSL_SECH_STATUS_SUCCESS;

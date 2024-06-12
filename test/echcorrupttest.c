@@ -1604,6 +1604,117 @@ end:
     return res;
 }
 
+
+static int sech_encrypt(int idx)
+{
+    int res = 0;
+
+    unsigned char key[] = {
+        0xbb, 0xbb, 0xbb, 0xbb,
+        0xbb, 0xbb, 0xbb, 0xbb,
+        0xbb, 0xbb, 0xbb, 0xbb,
+        0xbb, 0xbb, 0xbb, 0xbb,
+    };
+    static const unsigned char iv_value[] = {
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+    };
+    unsigned char * iv = iv_value;
+    size_t iv_len = 16;
+    size_t key_len = 16;
+    fprintf(stderr, "*iv(%li)[%p]:\n", iv_len, iv);
+    BIO_dump_fp(stderr, iv, iv_len);
+    unsigned char * cipher_text;
+    size_t cipher_text_len;
+    char * cipher_suite = NULL; // use default AES-128-GCM
+    char * plain = "plaintext";
+    size_t plain_len = sizeof("plaintext") - 1;
+    int encryptrv = sech_helper_encrypt(
+          NULL,                   // SSL * s,
+          (unsigned char *)plain, // unsigned char * plain,
+          plain_len,              // int plain_len,
+          key,                    // unsigned char * key,
+          key_len,                // int key_len,
+          &iv,                    // unsigned char ** iv,
+          &iv_len,                // int * iv_len,
+          &cipher_text,           // unsigned char ** cipher_text,
+          &cipher_text_len,       // int * cipher_text_len,
+          cipher_suite            // char * cipher_suite)
+        );
+
+    fprintf(stderr, "encryptrv: %i\n", encryptrv);
+    BIO_dump_fp(stderr, plain, plain_len);
+    BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+    if(encryptrv == 0) goto end;
+
+    unsigned char * plain_text_out = NULL;
+    size_t plain_text_out_len;
+
+    int decryptrv = sech_helper_decrypt(
+            NULL,
+            (unsigned char *) cipher_text,
+            cipher_text_len,
+            key,
+            key_len,
+            iv,
+            iv_len,
+            &plain_text_out,
+            &plain_text_out_len,
+            cipher_suite
+            );
+
+    fprintf(stderr, "decryptrv: %i\n", decryptrv);
+    BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
+    if(decryptrv == 0) goto end;
+
+    iv = NULL;
+    iv_len = 0;
+    encryptrv = sech_helper_encrypt(
+          NULL,                   // SSL * s,
+          (unsigned char *)plain, // unsigned char * plain,
+          plain_len,              // int plain_len,
+          key,                    // unsigned char * key,
+          key_len,                // int key_len,
+          &iv,                    // unsigned char ** iv,
+          &iv_len,                // int * iv_len,
+          &cipher_text,           // unsigned char ** cipher_text,
+          &cipher_text_len,       // int * cipher_text_len,
+          cipher_suite            // char * cipher_suite)
+        );
+
+    fprintf(stderr, "encryptrv: %i\n", encryptrv);
+    BIO_dump_fp(stderr, plain, plain_len);
+    BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+    if(encryptrv == 0) goto end;
+
+    plain_text_out = NULL;
+    plain_text_out_len = 0;
+    decryptrv = sech_helper_decrypt(
+           NULL,
+           (unsigned char *) cipher_text,
+           cipher_text_len,
+           key,
+           key_len,
+           iv,
+           iv_len,
+           &plain_text_out,
+           &plain_text_out_len,
+           cipher_suite
+           );
+
+    fprintf(stderr, "decryptrv: %i\n", decryptrv);
+    BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
+    if(decryptrv == 0) goto end;
+
+
+
+     res = 1;
+end:
+    return res;
+}
+
 typedef enum OPTION_choice {
     OPT_ERR = -1,
     OPT_EOF = 0,
@@ -1674,6 +1785,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sh_corrupt, OSSL_NELEM(test_shs));
     ADD_ALL_TESTS(ech_raw_dec, OSSL_NELEM(raw_vectors));
     ADD_ALL_TESTS(ech_split_mode, 1);
+    ADD_ALL_TESTS(sech_encrypt, 1);
     return 1;
 err:
     return 0;

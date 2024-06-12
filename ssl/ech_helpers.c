@@ -294,4 +294,105 @@ err:
     *out = NULL;
     return 0;
 }
+
+int sech_helper_encrypt(
+    SSL * s,
+    unsigned char * plain,
+    size_t plain_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char ** iv,
+    size_t * iv_len,
+    unsigned char ** cipher_text,
+    size_t * cipher_text_len,
+    char * cipher_suite)
+{
+    int ret = 0;
+    unsigned char outbuf[1024];
+    int outlen, tmplen;
+    unsigned char * iv_out = NULL;
+    unsigned char aad[16] = {
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    };
+    int aad_out_len = 0;
+    unsigned char tag[16];
+    int tag_len = 16;
+    BIO_dump_fp(stderr, tag, sizeof(tag));
+
+    if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
+    EVP_CIPHER_CTX *ctx = NULL;
+    EVP_CIPHER * cipher = NULL;
+    ctx = EVP_CIPHER_CTX_new();
+
+    if(iv == NULL) goto end; // not allowed, must pass a pointer so the iv used can be returned
+    if ((cipher = EVP_CIPHER_fetch(NULL, cipher_suite, NULL)) == NULL) goto end;
+    BIO_dump_fp(stderr, *iv, *iv_len);
+    if (!EVP_EncryptInit_ex2(ctx, cipher, key, *iv == NULL ? NULL : *iv, NULL)) goto end;
+    if(!EVP_EncryptUpdate(ctx, NULL, &aad_out_len, aad, sizeof(aad))) goto end;
+    if(!EVP_EncryptUpdate(ctx, outbuf, &outlen, plain, plain_len)) goto end;
+    *iv_len = EVP_CIPHER_CTX_get_iv_length(ctx);
+    iv_out = OPENSSL_malloc(*iv_len);
+    if(iv_out == NULL) goto end;
+    *iv= iv_out;
+    BIO_dump_fp(stderr, *iv, *iv_len);
+    if(!EVP_CIPHER_CTX_get_updated_iv(ctx, iv_out, *iv_len)) goto end;
+    if(!EVP_EncryptFinal_ex(ctx, outbuf + outlen, &tmplen)) goto end;
+    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag)) goto end;
+    fprintf(stderr, "tag:\n");
+    BIO_dump_fp(stderr, tag, sizeof(tag));
+    outlen += tmplen;
+    *cipher_text = OPENSSL_malloc(outlen + 1);
+    if (cipher_text == NULL) goto end;
+    BIO_dump_fp(stderr, *cipher_text, outlen);
+    memcpy(*cipher_text, outbuf, outlen);
+    *cipher_text_len = outlen;
+    ret = 1;
+end:
+    EVP_CIPHER_CTX_free(ctx);
+    EVP_CIPHER_free(cipher);
+    return ret;
+}
+
+int sech_helper_decrypt(
+    SSL * s,
+    unsigned char * cipher_text,
+    size_t cipher_text_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char * iv,
+    size_t  iv_len,
+    unsigned char ** plain_text,
+    size_t * plain_text_len,
+    char * cipher_suite)
+{
+    int rv = 0;
+    EVP_CIPHER_CTX *ctx = NULL;
+    EVP_CIPHER * cipher = NULL;
+    unsigned char buf[1024];
+    int buf_len;
+    if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
+    ctx = EVP_CIPHER_CTX_new();
+    if ((cipher = EVP_CIPHER_fetch(NULL, cipher_suite, NULL)) == NULL) goto end;
+    BIO_dump_fp(stderr, key, key_len);
+    BIO_dump_fp(stderr, iv, iv_len);
+    BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+    if(!EVP_DecryptInit_ex2(ctx, cipher, key, iv, NULL)) goto end;
+    if(!EVP_DecryptUpdate(ctx, buf, &buf_len, cipher_text, cipher_text_len))  goto end;
+    unsigned char* out_text = (unsigned char*)OPENSSL_malloc(buf_len + 1);
+    if (out_text == NULL) goto end;
+    memcpy(out_text, buf, buf_len);
+    *plain_text_len = buf_len;
+    *plain_text = out_text;
+    fprintf(stderr, "plain_text_out(%li)[%p]:\n", *plain_text_len, *plain_text);
+    BIO_dump_fp(stderr, *plain_text, *plain_text_len);
+    rv = 1;
+end:
+    EVP_CIPHER_CTX_free(ctx);
+    EVP_CIPHER_free(cipher);
+    return rv;
+}
+
 #endif
