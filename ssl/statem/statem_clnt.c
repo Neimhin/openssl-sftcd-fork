@@ -1847,6 +1847,17 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
             SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
             goto err;
         }
+
+        unsigned char zeros[32] = {0};
+        if(memcmp(zeros, s->s3.server_random, SSL3_RANDOM_SIZE) == 0) // TODO: replace this dummy acceptance signal
+        {
+            fprintf(stderr, "SECH: client saw accept_confirmation signal\n");
+            s->ext.sech_peer_inner_servername = s->ext.sech_inner_servername;
+        }
+        else 
+        {
+            s->ext.sech_peer_inner_servername = NULL;
+        }
     }
 
     /* Get the session-id. */

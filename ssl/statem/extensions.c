@@ -16,6 +16,7 @@
 #include "internal/nelem.h"
 #include "internal/cryptlib.h"
 #include "../ssl_local.h"
+#include "internal/ech_helpers.h"
 #include "statem_local.h"
 
 static int final_renegotiate(SSL_CONNECTION *s, unsigned int context, int sent);
@@ -1104,7 +1105,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
     }
 
 #ifndef OPENSSL_NO_ECH
-    if(s->ext.sech_version == 2)
+    if(s->server && s->ext.sech_version == 2)
     {
         unsigned char * iv = s->s3.client_random;
         size_t iv_len = 12;
@@ -1114,7 +1115,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         size_t tag_len = 8;
         unsigned char * plain_text_out = NULL;
         size_t plain_text_out_len = 0;
-        unsigned char * cipher_suite = NULL;
+        char * cipher_suite = NULL;
         unsigned char * key = s->ext.sech_symmetric_key;
         size_t key_len = s->ext.sech_symmetric_key_len;
 
@@ -1142,6 +1143,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             &plain_text_out_len,
             cipher_suite
             );
+        fprintf(stderr, "final servername decryptrv: %i\n", decryptrv);
         if(decryptrv) {
             fprintf(stderr, "plain_text_out:\n");
             BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);

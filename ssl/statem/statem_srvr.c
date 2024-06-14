@@ -2039,12 +2039,17 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
 
 
 
+    int sech_accepted = s->ext.sech_version == 2 &&
+        (s->ext.sech_peer_inner_servername != NULL) &&
+        (strlen(s->ext.sech_peer_inner_servername) > 0);
     /*
      * Check if we want to use external pre-shared secret for this handshake
      * for not reused session only. We need to generate server_random before
      * calling tls_session_secret_cb in order to allow SessionTicket
      * processing to use it in key derivation.
      */
+
+    if(!sech_accepted)
     {
         unsigned char *pos;
         pos = s->s3.server_random;
@@ -2052,6 +2057,12 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
+    }
+    else
+    {
+        // TODO: construct cryptographic acceptance signal
+        unsigned char zeros[32] = {0};
+        memcpy(s->s3.server_random, zeros, SSL3_RANDOM_SIZE);
     }
 
     if (!s->hit && !tls1_set_server_sigalgs(s)) {
