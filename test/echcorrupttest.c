@@ -1615,19 +1615,21 @@ static int sech_encrypt(int idx)
         0xbb, 0xbb, 0xbb, 0xbb,
         0xbb, 0xbb, 0xbb, 0xbb,
     };
-    static const unsigned char iv_value[] = {
+    static unsigned char iv_value[] = {
         0xab, 0xab, 0xab, 0xab,
         0xab, 0xab, 0xab, 0xab,
         0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
+        // 0xab, 0xab, 0xab, 0xab,
     };
     unsigned char * iv = iv_value;
-    size_t iv_len = 16;
+    size_t iv_len = 12;
     size_t key_len = 16;
     fprintf(stderr, "*iv(%li)[%p]:\n", iv_len, iv);
     BIO_dump_fp(stderr, iv, iv_len);
     unsigned char * cipher_text;
     size_t cipher_text_len;
+    unsigned char * tag;
+    size_t tag_len;
     char * cipher_suite = NULL; // use default AES-128-GCM
     char * plain = "plaintext";
     size_t plain_len = sizeof("plaintext") - 1;
@@ -1641,9 +1643,13 @@ static int sech_encrypt(int idx)
           &iv_len,                // int * iv_len,
           &cipher_text,           // unsigned char ** cipher_text,
           &cipher_text_len,       // int * cipher_text_len,
+          &tag,                   // char ** tag,
+          &tag_len,               // size_t * tag_len,
           cipher_suite            // char * cipher_suite)
         );
 
+    fprintf(stderr, "tag:\n");
+    BIO_dump_fp(stderr, tag, tag_len);
     fprintf(stderr, "encryptrv: %i\n", encryptrv);
     BIO_dump_fp(stderr, plain, plain_len);
     BIO_dump_fp(stderr, cipher_text, cipher_text_len);
@@ -1656,6 +1662,8 @@ static int sech_encrypt(int idx)
             NULL,
             (unsigned char *) cipher_text,
             cipher_text_len,
+            tag,
+            tag_len,
             key,
             key_len,
             iv,
@@ -1672,17 +1680,19 @@ static int sech_encrypt(int idx)
     iv = NULL;
     iv_len = 0;
     encryptrv = sech_helper_encrypt(
-          NULL,                   // SSL * s,
-          (unsigned char *)plain, // unsigned char * plain,
-          plain_len,              // int plain_len,
-          key,                    // unsigned char * key,
-          key_len,                // int key_len,
-          &iv,                    // unsigned char ** iv,
-          &iv_len,                // int * iv_len,
-          &cipher_text,           // unsigned char ** cipher_text,
-          &cipher_text_len,       // int * cipher_text_len,
-          cipher_suite            // char * cipher_suite)
-        );
+      NULL,                   // SSL * s,
+      (unsigned char *)plain, // unsigned char * plain,
+      plain_len,              // int plain_len,
+      key,                    // unsigned char * key,
+      key_len,                // int key_len,
+      &iv,                    // unsigned char ** iv,
+      &iv_len,                // int * iv_len,
+      &cipher_text,           // unsigned char ** cipher_text,
+      &cipher_text_len,       // int * cipher_text_len,
+      &tag,                   // char ** tag,
+      &tag_len,               // size_t * tag_len,
+      cipher_suite            // char * cipher_suite)
+      );
 
     fprintf(stderr, "encryptrv: %i\n", encryptrv);
     BIO_dump_fp(stderr, plain, plain_len);
@@ -1692,22 +1702,73 @@ static int sech_encrypt(int idx)
     plain_text_out = NULL;
     plain_text_out_len = 0;
     decryptrv = sech_helper_decrypt(
-           NULL,
-           (unsigned char *) cipher_text,
-           cipher_text_len,
-           key,
-           key_len,
-           iv,
-           iv_len,
-           &plain_text_out,
-           &plain_text_out_len,
-           cipher_suite
-           );
+      NULL,
+      (unsigned char *) cipher_text,
+      cipher_text_len,
+      tag,
+      tag_len,
+      key,
+      key_len,
+      iv,
+      iv_len,
+      &plain_text_out,
+      &plain_text_out_len,
+      cipher_suite
+      );
+
+    fprintf(stderr, "iv:\n");
+    BIO_dump_fp(stderr, iv, iv_len);
 
     fprintf(stderr, "decryptrv: %i\n", decryptrv);
     BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
     if(decryptrv == 0) goto end;
 
+    iv = NULL;
+    iv_len = 0;
+    tag_len = 8;
+    encryptrv = sech_helper_encrypt(
+      NULL,                   // SSL * s,
+      (unsigned char *)plain, // unsigned char * plain,
+      plain_len,              // int plain_len,
+      key,                    // unsigned char * key,
+      key_len,                // int key_len,
+      &iv,                    // unsigned char ** iv,
+      &iv_len,                // int * iv_len,
+      &cipher_text,           // unsigned char ** cipher_text,
+      &cipher_text_len,       // int * cipher_text_len,
+      &tag,                   // char ** tag,
+      &tag_len,               // size_t * tag_len,
+      cipher_suite            // char * cipher_suite)
+      );
+
+    fprintf(stderr, "encryptrv: %i\n", encryptrv);
+    BIO_dump_fp(stderr, plain, plain_len);
+    BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+    if(encryptrv == 0) goto end;
+
+    plain_text_out = NULL;
+    plain_text_out_len = 0;
+    decryptrv = sech_helper_decrypt(
+      NULL,
+      (unsigned char *) cipher_text,
+      cipher_text_len,
+      tag,
+      tag_len,
+      key,
+      key_len,
+      iv,
+      iv_len,
+      &plain_text_out,
+      &plain_text_out_len,
+      cipher_suite
+      );
+
+    fprintf(stderr, "iv:\n");
+    BIO_dump_fp(stderr, iv, iv_len);
+
+    fprintf(stderr, "decryptrv: %i\n", decryptrv);
+    BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
+    if(decryptrv == 0) goto end;
 
 
      res = 1;

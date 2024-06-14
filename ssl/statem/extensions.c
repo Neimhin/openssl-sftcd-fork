@@ -1106,15 +1106,45 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
 #ifndef OPENSSL_NO_ECH
     if(s->ext.sech_version == 2)
     {
-        // try decrypt the clienthello->random TODO
-        // dummy SECH acceptance (random is all zeros)
-        int all_zero = 1;
-        for(int j = 0; j < SSL3_RANDOM_SIZE; j++) {
-            if(s->s3.client_random[j] == 0) continue;
-            all_zero = 0;
-            break;
-        }
-        if(all_zero) {
+        unsigned char * iv = s->s3.client_random;
+        size_t iv_len = 12;
+        unsigned char * cipher_text = s->s3.client_random + 12;
+        size_t cipher_text_len = 12;
+        unsigned char * tag = s->s3.client_random + 24;
+        size_t tag_len = 8;
+        unsigned char * plain_text_out = NULL;
+        size_t plain_text_out_len = 0;
+        unsigned char * cipher_suite = NULL;
+        unsigned char * key = s->ext.sech_symmetric_key;
+        size_t key_len = s->ext.sech_symmetric_key_len;
+
+        fprintf(stderr, "iv:\n");
+        BIO_dump_fp(stderr, iv, iv_len);
+
+        fprintf(stderr, "tag:\n");
+        BIO_dump_fp(stderr, tag, tag_len);
+
+        fprintf(stderr, "cipher_text:\n");
+        BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+
+
+        int decryptrv = sech_helper_decrypt(
+            NULL,
+            (unsigned char *) cipher_text,
+            cipher_text_len,
+            tag,
+            tag_len,
+            key,
+            key_len,
+            iv,
+            iv_len,
+            &plain_text_out,
+            &plain_text_out_len,
+            cipher_suite
+            );
+        if(decryptrv) {
+            fprintf(stderr, "plain_text_out:\n");
+            BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
             s->ext.sech_peer_inner_servername = OPENSSL_strdup("inner.com");
             s->ext.hostname = s->ext.sech_peer_inner_servername;
             s->session->ext.hostname = s->ext.sech_peer_inner_servername;

@@ -1489,11 +1489,49 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
     }
 #ifndef OPENSSL_NO_ECH
     else { // do SECH hello random (encrypted SNI in random)
-        // TODO: create ext.sech_version field in SSL_CONNECTION objects
         if(s->ext.sech_version == 2) {
             // TODO: encrypt sni and put into p
+            // p
+            unsigned char * iv = NULL;
+            unsigned char * tag = NULL;
+            size_t tag_len = 8;
+            size_t iv_len = 0;
+            unsigned char plaintext[12] = {0};
+            unsigned char * cipher_text;
+            unsigned char * key = s->ext.sech_symmetric_key;
+            size_t key_len = s->ext.sech_symmetric_key_len;
+            size_t cipher_text_len;
+            memcpy(plaintext, s->ext.sech_inner_servername, strlen(s->ext.sech_inner_servername));
+            fprintf(stderr, "plaintext: %s\n", plaintext);
+
+            int encryptrv = sech_helper_encrypt(
+              NULL,                   // SSL * s,
+              (unsigned char *)plaintext, // unsigned char * plain,
+              12,              // int plain_len,
+              key,                    // unsigned char * key,
+              key_len,                // int key_len,
+              &iv,                    // unsigned char ** iv,
+              &iv_len,                // int * iv_len,
+              &cipher_text,           // unsigned char ** cipher_text,
+              &cipher_text_len,       // int * cipher_text_len,
+              &tag,                   // char ** tag,
+              &tag_len,               // size_t * tag_len,
+              NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
+            );
+
+            fprintf(stderr, "iv:\n");
+            BIO_dump_fp(stderr, iv, iv_len);
+
+            fprintf(stderr, "tag:\n");
+            BIO_dump_fp(stderr, tag, tag_len);
+
+            fprintf(stderr, "cipher_text:\n");
+            BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+
             unsigned char bytes[SSL3_RANDOM_SIZE] = {0};
-            memcpy(p, bytes, SSL3_RANDOM_SIZE);
+            memcpy(p, iv, iv_len);
+            memcpy(p+iv_len, cipher_text, cipher_text_len);
+            memcpy(p+iv_len+cipher_text_len, tag, tag_len);
             fprintf(stderr, "SECH: using sech_version 2 CH random\n");
         }
     }

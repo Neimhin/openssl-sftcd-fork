@@ -91,11 +91,15 @@ int sech_helper_encrypt(
     size_t * iv_len,
     unsigned char ** cipher_text,
     size_t * cipher_text_len,
+    unsigned char ** tag,
+    size_t * tag_len,
     char * cipher_suite);
 int sech_helper_decrypt(
     SSL * s,
     unsigned char * cipher_text,
     size_t cipher_text_len,
+    unsigned char * tag,
+    size_t tag_len,
     unsigned char * key,
     size_t key_len,
     unsigned char * iv,

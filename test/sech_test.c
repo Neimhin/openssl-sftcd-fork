@@ -2622,7 +2622,16 @@ static int sech2_roundtrip_accept(int idx)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_accept__servername_cb))) return 0;
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
-    char key[4] = {0xab, 0xab, 0xab, 0xab};
+    char key[32] = {
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+    };
     size_t key_len = sizeof(key);
     SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
     SSL_CTX_set_sech_version(cctx, 2);
@@ -2723,8 +2732,26 @@ static int sech2_roundtrip_wrong_key(int idx)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_wrong_key__servername_cb))) return 0;
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
-    char key[4] = {0xab, 0xab, 0xab, 0xab};
-    char server_key[4] = {0xba, 0xba, 0xba, 0xba};
+    char key[4] = {
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+    };
+    char server_key[4] = {
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+    };
     size_t key_len = sizeof(key);
     size_t server_key_len = sizeof(server_key);
     SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
@@ -2752,8 +2779,8 @@ static int sech2_roundtrip_wrong_key(int idx)
     char * server_inner_sni = NULL, * server_outer_sni = NULL;
     int client_status = SSL_get_sech_status(clientssl, &client_inner_sni, &client_outer_sni);
     int server_status = SSL_get_sech_status(serverssl, &server_inner_sni, &server_outer_sni);
-    if(!TEST_int_eq(client_status, SSL_SECH_STATUS_SUCCESS)) return 0;
-    if(!TEST_int_eq(server_status, SSL_SECH_STATUS_SUCCESS)) return 0;
+    if(!TEST_int_eq(client_status, SSL_SECH_STATUS_FAILED)) return 0;
+    if(!TEST_int_eq(server_status, SSL_SECH_STATUS_FAILED)) return 0;
     return 1;
 }
 
