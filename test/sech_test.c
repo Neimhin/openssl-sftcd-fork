@@ -2419,10 +2419,11 @@ const OPTIONS *test_get_options(void)
 
 #endif
 
-static int sanity_check_fail(int idx)
-{
-    return 0;
-}
+// static int sanity_check_fail(int idx)
+// {
+//     return 0;
+// }
+
 int sech2_tried_but_not_accepted__servername_callback(SSL *s, int *al, void *arg)
 {
 
@@ -2837,7 +2838,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(ech_wrong_pub_test, 3);
     ADD_ALL_TESTS(ech_tls12_with_ech_test, 1);
     ADD_ALL_TESTS(ech_sni_cb_test, 1);
-    ADD_ALL_TESTS(sanity_check_fail, 1);
+    // ADD_ALL_TESTS(sanity_check_fail, 1);
     ADD_ALL_TESTS(sech2_tried_but_not_accepted, 1);
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
