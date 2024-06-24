@@ -2745,7 +2745,7 @@ static int ech_hkdf_extract_wrap(SSL_CONNECTION *s, EVP_MD *md, int for_hrr,
     if (for_hrr == 1) {
         label = OSSL_ECH_HRR_CONFIRM_STRING;
     } else {
-        label = OSSL_ECH_ACCEPT_CONFIRM_STRING;
+        label = OSSL_ECH_ACCEPT_CONFIRM_STRING; // == "ech accept confirmation"
     }
     labellen = strlen(label);
 # ifdef OSSL_ECH_SUPERVERBOSE
@@ -2807,10 +2807,16 @@ static int ech_hkdf_extract_wrap(SSL_CONNECTION *s, EVP_MD *md, int for_hrr,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    if (!tls13_hkdf_expand(s, md, notsecret,
-                           (const unsigned char *)label, labellen,
-                           hashval, hashlen,
-                           hoval, 8, 1)) {
+    if (!tls13_hkdf_expand(
+                s,                                       // SSL_CONNECTION *s,                            
+                md,                                      // const EVP_MD *md,
+                notsecret,                               // const unsigned char *secret,
+                (const unsigned char *)label, labellen,  // const unsigned char *label, size_t labellen,
+                hashval, hashlen,                        // const unsigned char *data, size_t datalen,
+                hoval,                                   // unsigned char *out,
+                8,                                       // size_t outlen,
+                1                                        // int fatal
+                )) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
@@ -3460,6 +3466,188 @@ int ech_reset_hs_buffer(SSL_CONNECTION *s, const unsigned char *buf,
     return 1;
 }
 
+int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
+                               const unsigned char *shbuf, size_t shlen,
+                               unsigned char **tbuf, size_t *tlen,
+                               size_t *chend, size_t *fixedshbuf_len)
+{
+    unsigned char *fixedshbuf = NULL, *hashin = NULL, hashval[EVP_MAX_MD_SIZE];
+    unsigned int hashlen = 0, hashin_len = 0;
+    EVP_MD_CTX *ctx = NULL;
+    EVP_MD *md = NULL;
+    WPACKET tpkt, shpkt;
+    BUF_MEM *tpkt_mem = NULL, *shpkt_mem = NULL;
+
+    if(s->server == 1)
+    {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
+        goto err;
+    }
+    if (s->hello_retry_request != SSL_HRR_NONE) // simple case not doing HRR
+    {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
+        goto err;
+    }
+
+    /*
+     * store SH for later, preamble has bad length at this point on server
+     * and is missing on client so we'll fix
+     */
+    if ((shpkt_mem = BUF_MEM_new()) == NULL
+        || !BUF_MEM_grow(shpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
+        || !WPACKET_init(&shpkt, shpkt_mem)) {
+        BUF_MEM_free(shpkt_mem);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    fprintf(stderr, "shlen before: %ld\n", shlen);
+    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO) // message type (MT) is server hello
+        || !WPACKET_put_bytes_u24(&shpkt, shlen - 4)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
+        || !WPACKET_memcpy(&shpkt, shbuf + 4, shlen -4) // if(server) copy in server hello skipping first 4 bytes
+        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) { // retrieve true length for this message (for server: 1 + shlen - 4, for client: 1 + shlen)
+        BUF_MEM_free(shpkt_mem);
+        WPACKET_cleanup(&shpkt);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    fprintf(stderr, "shlen after: %ld\n", *fixedshbuf_len);
+    fixedshbuf = OPENSSL_malloc(*fixedshbuf_len);
+    if (fixedshbuf == NULL) {
+        BUF_MEM_free(shpkt_mem);
+        WPACKET_cleanup(&shpkt);
+        goto err;
+    }
+    memcpy(fixedshbuf, WPACKET_get_curr(&shpkt) - *fixedshbuf_len, // copy last *fixedshbuf_len bytes from shpkt to fixedshbuf
+           *fixedshbuf_len);
+    BUF_MEM_free(shpkt_mem);
+    WPACKET_cleanup(&shpkt);
+# ifdef OSSL_ECH_SUPERVERBOSE
+    ech_pbuf("cx: fixed sh buf", fixedshbuf, *fixedshbuf_len);
+# endif
+    if ((tpkt_mem = BUF_MEM_new()) == NULL
+        || !BUF_MEM_grow(tpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
+        || !WPACKET_init(&tpkt, tpkt_mem)) {
+        BUF_MEM_free(tpkt_mem);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+
+    if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
+                        s->ext.sech_client_hello_transcript_for_confirmation_len)
+        || !WPACKET_get_length(&tpkt, chend)
+        || !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
+        || !WPACKET_get_length(&tpkt, tlen)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    OPENSSL_free(fixedshbuf);
+    *tbuf = OPENSSL_malloc(*tlen);
+    if (*tbuf == NULL)
+        goto err;
+    memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
+    WPACKET_cleanup(&tpkt);
+    BUF_MEM_free(tpkt_mem);
+    return 1;
+err:
+    if (s->ext.ech.kepthrr != fixedshbuf) /* don't double-free */
+        OPENSSL_free(fixedshbuf);
+    WPACKET_cleanup(&tpkt);
+    BUF_MEM_free(tpkt_mem);
+    EVP_MD_CTX_free(ctx);
+    return 0;
+}
+
+int sech_make_transcript_buffer_server(SSL_CONNECTION *s, int for_hrr,
+                               const unsigned char *shbuf, size_t shlen,
+                               unsigned char **tbuf, size_t *tlen,
+                               size_t *chend, size_t *fixedshbuf_len)
+{
+    unsigned char *fixedshbuf = NULL, *hashin = NULL, hashval[EVP_MAX_MD_SIZE];
+    unsigned int hashlen = 0, hashin_len = 0;
+    EVP_MD_CTX *ctx = NULL;
+    EVP_MD *md = NULL;
+    WPACKET tpkt, shpkt;
+    BUF_MEM *tpkt_mem = NULL, *shpkt_mem = NULL;
+
+    if(s->server == 0)
+    {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
+        goto err;
+    }
+    if (s->hello_retry_request != SSL_HRR_NONE) // simple case not doing HRR
+    {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
+        goto err;
+    }
+
+    /*
+     * store SH for later, preamble has bad length at this point on server
+     * and is missing on client so we'll fix
+     */
+    if ((shpkt_mem = BUF_MEM_new()) == NULL
+        || !BUF_MEM_grow(shpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
+        || !WPACKET_init(&shpkt, shpkt_mem)) {
+        BUF_MEM_free(shpkt_mem);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    fprintf(stderr, "shlen before: %ld\n", shlen);
+    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO) // message type (MT) is server hello
+        || !WPACKET_put_bytes_u24(&shpkt, shlen - 4)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
+        || !WPACKET_memcpy(&shpkt, shbuf + 4, shlen -4) // if(server) copy in server hello skipping first 4 bytes
+        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) { // retrieve true length for this message (for server: 1 + shlen - 4, for client: 1 + shlen)
+        BUF_MEM_free(shpkt_mem);
+        WPACKET_cleanup(&shpkt);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    fprintf(stderr, "shlen after: %ld\n", *fixedshbuf_len);
+    fixedshbuf = OPENSSL_malloc(*fixedshbuf_len);
+    if (fixedshbuf == NULL) {
+        BUF_MEM_free(shpkt_mem);
+        WPACKET_cleanup(&shpkt);
+        goto err;
+    }
+    memcpy(fixedshbuf, WPACKET_get_curr(&shpkt) - *fixedshbuf_len, // copy last *fixedshbuf_len bytes from shpkt to fixedshbuf
+           *fixedshbuf_len);
+    BUF_MEM_free(shpkt_mem);
+    WPACKET_cleanup(&shpkt);
+# ifdef OSSL_ECH_SUPERVERBOSE
+    ech_pbuf("cx: fixed sh buf", fixedshbuf, *fixedshbuf_len);
+# endif
+    if ((tpkt_mem = BUF_MEM_new()) == NULL
+        || !BUF_MEM_grow(tpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
+        || !WPACKET_init(&tpkt, tpkt_mem)) {
+        BUF_MEM_free(tpkt_mem);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+
+    if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
+                        s->ext.sech_client_hello_transcript_for_confirmation_len)
+        || !WPACKET_get_length(&tpkt, chend)
+        || !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
+        || !WPACKET_get_length(&tpkt, tlen)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    OPENSSL_free(fixedshbuf);
+    *tbuf = OPENSSL_malloc(*tlen);
+    if (*tbuf == NULL)
+        goto err;
+    memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
+    WPACKET_cleanup(&tpkt);
+    BUF_MEM_free(tpkt_mem);
+    return 1;
+err:
+    if (s->ext.ech.kepthrr != fixedshbuf) /* don't double-free */
+        OPENSSL_free(fixedshbuf);
+    WPACKET_cleanup(&tpkt);
+    BUF_MEM_free(tpkt_mem);
+    EVP_MD_CTX_free(ctx);
+    return 0;
+}
+
 /*
  * @brief make up a buffer to use to reset transcript
  * @param s is the SSL connection
@@ -3495,12 +3683,12 @@ int ech_make_transcript_buffer(SSL_CONNECTION *s, int for_hrr,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO)
-        || (s->server == 1 && !WPACKET_put_bytes_u24(&shpkt, shlen - 4))
-        || (s->server == 1 && !WPACKET_memcpy(&shpkt, shbuf + 4, shlen -4))
-        || (s->server == 0 && !WPACKET_put_bytes_u24(&shpkt, shlen))
-        || (s->server == 0 && !WPACKET_memcpy(&shpkt, shbuf, shlen))
-        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) {
+    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO) // message type (MT) is server hello
+        || (s->server == 1 && !WPACKET_put_bytes_u24(&shpkt, shlen - 4))    // if(server) length of server hello (skipping first 4 bytes of shbuf)
+        || (s->server == 1 && !WPACKET_memcpy(&shpkt, shbuf + 4, shlen -4)) // if(server) copy in server hello skipping first 4 bytes
+        || (s->server == 0 && !WPACKET_put_bytes_u24(&shpkt, shlen))        // if(client) use unaugmented shlen
+        || (s->server == 0 && !WPACKET_memcpy(&shpkt, shbuf, shlen))        // if(client) use unaugmented shbuf
+        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) { // retrieve true length for this message (for server: 1 + shlen - 4, for client: 1 + shlen)
         BUF_MEM_free(shpkt_mem);
         WPACKET_cleanup(&shpkt);
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -3512,7 +3700,7 @@ int ech_make_transcript_buffer(SSL_CONNECTION *s, int for_hrr,
         WPACKET_cleanup(&shpkt);
         goto err;
     }
-    memcpy(fixedshbuf, WPACKET_get_curr(&shpkt) - *fixedshbuf_len,
+    memcpy(fixedshbuf, WPACKET_get_curr(&shpkt) - *fixedshbuf_len, // copy last *fixedshbuf_len bytes from shpkt to fixedshbuf
            *fixedshbuf_len);
     BUF_MEM_free(shpkt_mem);
     WPACKET_cleanup(&shpkt);
@@ -3526,7 +3714,7 @@ int ech_make_transcript_buffer(SSL_CONNECTION *s, int for_hrr,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
-    if (s->hello_retry_request == SSL_HRR_NONE) {
+    if (s->hello_retry_request == SSL_HRR_NONE) { // simple case not doing HRR
         if (!WPACKET_memcpy(&tpkt, s->ext.ech.innerch,
                             s->ext.ech.innerch_len)
             || !WPACKET_get_length(&tpkt, chend)
@@ -3610,6 +3798,280 @@ err:
     BUF_MEM_free(tpkt_mem);
     EVP_MD_CTX_free(ctx);
     return 0;
+}
+
+/*
+ * SECH_accept_confirmation:
+ * 
+ * accept_confirmation = HKDF-Expand-Label(
+ *   HKDF-Extract(sech_symmetric_key, ClientHelloOuter.random),
+ *   "sech accept confirmation",
+ *   transcript_sech_conf,
+ *   8)
+ *
+ * transcript_sech_conf = ClientHelloOuter..ServerHello
+ *   with last octets 16-32 of ServerHello.random replaced with 0x0
+ *
+ *   octets 16-23 are for SECH_accept_confirmation (but these bytes will be random if not accepting SECH)
+ *   octets 24-32 are for ECH accept_confirmation (but these bytes will be random if not accepting ECH)
+ *
+ * TODO: If the server CAN accept SECH or ECH, then it should be left to the application program
+ * to decide which take precedence, or whether both should be accepted and allow client to decide which to procede with.
+ *
+ * Server may have a complicated precedence, e.g.:
+ * 1: SECH:   very-very-secret.com
+ * 2: ECH:    very-very-secret.com
+ * 3: SECH:   somewhat-secret.com
+ * 4: ECH:    somewhat-secret.com
+ * 5: TLS1.3: not-protected.com
+ * ... So we should implement a callback that allows the application program decide which protocol to accept, in the case of multiple options.
+ */
+int sech_calc_confirm_server(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen
+        )
+{
+    int for_hrr = 0;
+    int rv = 1;
+    EVP_MD_CTX *ctx = NULL;
+    EVP_MD *md = NULL;
+    unsigned char *tbuf = NULL;
+    unsigned char *fixedshbuf = NULL;
+    size_t tlen = 0, chend = 0;
+    unsigned int hashlen = 0;
+    unsigned char * hacked_server_hello_buf = OPENSSL_malloc(shlen); // TODO free
+    if(hacked_server_hello_buf == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    memcpy(hacked_server_hello_buf, shbuf, shlen); // TODO: no need to make hacked_server_hello_buf copy? just use on server_hello_buf directly?
+
+    fprintf(stderr, "SECH2_ACCEPT_CONFIRMATION_OFFSET: %i\n", SECH2_ACCEPT_CONFIRMATION_OFFSET);
+    memset(hacked_server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
+
+    BIO_dump_fp(stderr, hacked_server_hello_buf, shlen);
+
+    md = (EVP_MD *)ssl_handshake_md(s);
+    if ((hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE)
+        goto err;
+    if (sech_make_transcript_buffer_server(
+                s, for_hrr,
+                shbuf, shlen,
+                &tbuf, &tlen,
+                &chend, &shlen) != 1)
+        goto err;
+
+    BIO_dump_fp(stderr, tbuf, tlen);
+    fprintf(stderr, "hashlen: %i\n", hashlen);
+
+    unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
+    unsigned int sech_transcript_hash_len = 0;
+
+    sech_transcript_hash_len = EVP_MD_size(md);
+    if ((ctx = EVP_MD_CTX_new()) == NULL
+        || EVP_DigestInit_ex(ctx, md, NULL) <= 0
+        || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0
+        || EVP_DigestFinal_ex(ctx, sech_transcript_hash, &sech_transcript_hash_len) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    EVP_MD_CTX_free(ctx);
+    ctx = NULL;
+
+    fprintf(stderr, "sech_transcript_hash:\n"); // TODO verbose guard
+    BIO_dump_fp(stderr, sech_transcript_hash, sech_transcript_hash_len);
+
+    unsigned char * sech_iv = tbuf + 6;
+    const unsigned char sech_symmetric_key[32] = {0}; // TODO
+    const char * sech_decrypted_inner_servername = "inner.com";
+    if(!ssl_sech2_calc_accept_confirmation_functional(
+        s,
+        sech_iv,
+        sech_symmetric_key,
+        32,
+        sech_decrypted_inner_servername,
+        sech_transcript_hash,
+        md, // which message digest algorithm to use (negotiated by server and client)
+        acbuf)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    fprintf(stderr, "sech accept_confirmation:\n");
+    BIO_dump_fp(stderr, acbuf, 8);
+
+err:
+    OPENSSL_free(fixedshbuf);
+    OPENSSL_free(tbuf);
+    EVP_MD_CTX_free(ctx);
+    return rv;
+}
+
+int sech_calc_confirm_client(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen
+        )
+{
+    int for_hrr = 0;
+    int rv = 1;
+    EVP_MD_CTX *ctx = NULL;
+    EVP_MD *md = NULL;
+    unsigned char *tbuf = NULL;
+    unsigned char *fixedshbuf = NULL;
+    size_t tlen = 0, chend = 0;
+    unsigned int hashlen = 0;
+    unsigned char * hacked_server_hello_buf = OPENSSL_malloc(shlen); // TODO free
+    if(hacked_server_hello_buf == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    memcpy(hacked_server_hello_buf, shbuf, shlen); // TODO: no need to make hacked_server_hello_buf copy? just use on server_hello_buf directly?
+
+    fprintf(stderr, "SECH2_ACCEPT_CONFIRMATION_OFFSET: %i", SECH2_ACCEPT_CONFIRMATION_OFFSET);
+    memset(hacked_server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
+
+    BIO_dump_fp(stderr, hacked_server_hello_buf, shlen);
+    if (get_md_from_hs(s, &md, shbuf, shlen) != 1
+        || (hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE) // TODO: check this for SECH client
+        goto err;
+    if (sech_make_transcript_buffer_client(s, for_hrr, shbuf, shlen, &tbuf, &tlen,
+                                   &chend, &shlen) != 1)
+        goto err;
+
+    BIO_dump_fp(stderr, tbuf, tlen);
+    fprintf(stderr, "hashlen: %i\n", hashlen);
+
+    unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
+    unsigned int sech_transcript_hash_len = 0;
+
+    sech_transcript_hash_len = EVP_MD_size(md);
+    if ((ctx = EVP_MD_CTX_new()) == NULL
+        || EVP_DigestInit_ex(ctx, md, NULL) <= 0
+        || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0
+        || EVP_DigestFinal_ex(ctx, sech_transcript_hash, &sech_transcript_hash_len) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    EVP_MD_CTX_free(ctx);
+    ctx = NULL;
+
+    fprintf(stderr, "sech_transcript_hash:\n"); // TODO verbose guard
+    BIO_dump_fp(stderr, sech_transcript_hash, sech_transcript_hash_len);
+
+    unsigned char * sech_iv = tbuf + 6;
+    const unsigned char sech_symmetric_key[32] = {0}; // TODO
+    const char * sech_decrypted_inner_servername = "inner.com";
+    if(!ssl_sech2_calc_accept_confirmation_functional(
+        s,
+        sech_iv,
+        sech_symmetric_key,
+        32,
+        sech_decrypted_inner_servername,
+        sech_transcript_hash,
+        md, // which message digest algorithm to use (negotiated by server and client)
+        acbuf)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    fprintf(stderr, "sech accept_confirmation on client:\n");
+    BIO_dump_fp(stderr, acbuf, 8);
+
+err:
+    OPENSSL_free(fixedshbuf);
+    OPENSSL_free(tbuf);
+    EVP_MD_CTX_free(ctx);
+    return rv;
+}
+
+/*
+    % md = TranscriptHash(ClientHello..ServerHello) // with last 16 bytes of ServerHello.random set to 0x00
+    % padded_sech_IV = pad(sech_IV, HashLen)
+    % sech_accept_confirmation = HKDF-Expand-Label(
+    %   HKDF-Extract(padded_sech_IV, sech_symmetric_key),
+    %   "sech ac" || 0x00 || sech_decrypted_inner_servername,
+    %   md,
+    %   8
+    % )
+*/
+int ssl_sech2_calc_accept_confirmation_functional(
+        SSL_CONNECTION * s,
+        const unsigned char * sech_iv,
+        const unsigned char * sech_symmetric_key,
+        const size_t sech_symmetric_key_len,
+        const char * sech_decrypted_inner_servername,
+        const unsigned char * sech_transcript_hash,
+        const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
+        unsigned char * accept_confirmation_out)
+{
+    int rv = 1;
+    EVP_PKEY_CTX *pctx = NULL;
+    const unsigned char * extract_key =  sech_symmetric_key;
+    const size_t extract_key_len = sech_symmetric_key_len;
+    unsigned char * extract_salt = NULL;
+    size_t extract_salt_len = EVP_MD_size(md);
+    unsigned char extracted_key[EVP_MAX_MD_SIZE];
+    unsigned char zeros[EVP_MAX_MD_SIZE];
+    size_t retlen = 0;
+    size_t hashlen = EVP_MD_size(md);
+
+    memset(zeros, 0, EVP_MAX_MD_SIZE);
+
+    extract_salt = OPENSSL_malloc(hashlen);
+    memcpy(extract_salt, sech_iv, 12); // TODO: make the sech_iv length a parameter of this function
+    memset(extract_salt + 12, 0, hashlen - 12);
+
+    char * label = OPENSSL_malloc(sizeof("sech ac") + strlen(sech_decrypted_inner_servername));
+    if(label == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    memcpy(label, "sech ac", sizeof("sech ac"));
+    memcpy(label + sizeof("sech ac"), sech_decrypted_inner_servername, strlen(sech_decrypted_inner_servername));
+
+    // extracted_key = HKDF-Extract(padded_sech_iv, sech_symmetric_key)
+    pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+    if (!pctx  ||
+        EVP_PKEY_derive_init(pctx) != 1 ||
+        EVP_PKEY_CTX_hkdf_mode(pctx, EVP_PKEY_HKDEF_MODE_EXTRACT_ONLY) != 1 ||
+        EVP_PKEY_CTX_set_hkdf_md(pctx, md) != 1 ||
+        EVP_PKEY_CTX_set1_hkdf_key(pctx, extract_key, extract_key_len) != 1 ||
+        EVP_PKEY_CTX_set1_hkdf_salt(pctx, extract_salt, extract_salt_len) != 1 ||
+        EVP_PKEY_derive(pctx, NULL, &retlen) != 1 ||
+        hashlen != retlen ||
+        EVP_PKEY_derive(pctx, extracted_key, &retlen) != 1 ||
+        0)
+    {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        rv = 0;
+        goto err;
+    }
+
+
+    // HKDF-Expand-Label(extracted_key, "sech accept confirmation", transcript_hash, 8); 
+    const unsigned char * expansion_label = (unsigned char *) "sech accept confirmation";
+    size_t labellen = sizeof("sech accept confirmation");
+    if (!tls13_hkdf_expand(
+                s,                                       // SSL_CONNECTION *s,                            
+                md,                                      // const EVP_MD *md,
+                extracted_key,                               // const unsigned char *secret,
+                expansion_label, labellen,  // const unsigned char *label, size_t labellen,
+                sech_transcript_hash, hashlen,                        // const unsigned char *data, size_t datalen,
+                accept_confirmation_out,                                   // unsigned char *out,
+                8,                                       // size_t outlen,
+                1                                        // int fatal
+                )) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        rv = 0;
+        goto err;
+    }
+err: 
+    EVP_PKEY_CTX_free(pctx);
+    return rv;
 }
 
 /*
@@ -5993,7 +6455,7 @@ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int 
       inner_servername_len = strlen(inner_servername);
     }
     ctx->ext.sech_inner_servername_len = inner_servername_len;
-    ctx->ext.sech_inner_servername = inner_servername;
+    ctx->ext.sech_inner_servername = (unsigned char *)inner_servername;
     return 1;
 }
 

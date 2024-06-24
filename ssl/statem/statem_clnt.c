@@ -1501,7 +1501,7 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
             unsigned char * key = s->ext.sech_symmetric_key;
             size_t key_len = s->ext.sech_symmetric_key_len;
             size_t cipher_text_len;
-            memcpy(plaintext, s->ext.sech_inner_servername, strlen(s->ext.sech_inner_servername));
+            memcpy(plaintext, s->ext.sech_inner_servername, strlen((char *)s->ext.sech_inner_servername));
             fprintf(stderr, "plaintext: %s\n", plaintext);
 
             int encryptrv = sech_helper_encrypt(
@@ -1804,6 +1804,35 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
     SSL_COMP *comp;
 #endif
 #ifndef OPENSSL_NO_ECH
+
+    unsigned char * server_hello = NULL;
+    size_t server_hello_len;
+    PACKET_memdup(pkt, &server_hello, &server_hello_len);
+    fprintf(stderr, "server_hello on client:\n");
+    BIO_dump_fp(stderr, server_hello, server_hello_len);
+
+    if(s->ext.sech_version == 2) {
+      unsigned char acbuf[8];
+      if(!sech_calc_confirm_client(
+                  s,
+                  acbuf,
+                  server_hello,
+                  server_hello_len 
+              ))
+      {
+          SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
+          goto err;
+      }
+      
+      fprintf(stderr, "accept confirmation on client:\n");
+      BIO_dump_fp(stderr, acbuf, 8);
+      BIO_dump_fp(stderr, server_hello + 2 + SSL3_RANDOM_SIZE - 8, 8);
+
+      BIO_dump_fp(stderr, server_hello, 100);
+      if(memcmp(server_hello + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
+          fprintf(stderr, "SECH ACCEPT CONFIRMATION SEEN ON CLIENT\n");
+      }
+    }
     const unsigned char *shbuf = NULL;
     size_t shlen, chend, fixedshbuf_len, alen;
     /* client and server accept signal buffers */

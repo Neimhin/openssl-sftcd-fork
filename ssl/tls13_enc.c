@@ -161,11 +161,16 @@ int tls13_hkdf_expand_ex(OSSL_LIB_CTX *libctx, const char *propq,
     return ret == 0;
 }
 
-int tls13_hkdf_expand(SSL_CONNECTION *s, const EVP_MD *md,
-                      const unsigned char *secret,
-                      const unsigned char *label, size_t labellen,
-                      const unsigned char *data, size_t datalen,
-                      unsigned char *out, size_t outlen, int fatal)
+int tls13_hkdf_expand(
+        SSL_CONNECTION *s,                              
+        const EVP_MD *md,
+        const unsigned char *secret,
+        const unsigned char *label, size_t labellen,
+        const unsigned char *data, size_t datalen,
+        unsigned char *out,
+        size_t outlen,
+        int fatal
+        )
 {
     int ret;
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);

@@ -1604,6 +1604,8 @@ struct ssl_connection_st {
         unsigned char * sech_inner_servername;
                  size_t sech_inner_servername_len;
         char * sech_peer_inner_servername;
+        unsigned char * sech_client_hello_transcript_for_confirmation;
+        size_t sech_client_hello_transcript_for_confirmation_len;
         int sech_status;
 #endif
         /* certificate status request info */

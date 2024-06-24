@@ -2785,6 +2785,13 @@ static int sech2_roundtrip_wrong_key(int idx)
     return 1;
 }
 
+static int sech2_accept_confirmation(int idx)
+{
+    int rv = 0;
+end:
+    return rv;
+}
+
 int setup_tests(void)
 {
 #ifndef OPENSSL_NO_ECH
@@ -2844,6 +2851,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
+    ADD_ALL_TESTS(sech2_accept_confirmation, 1);
     return 1;
 err:
     return 0;

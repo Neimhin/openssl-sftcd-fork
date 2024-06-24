@@ -410,6 +410,34 @@ int ech_same_key_share(void);
  *                        "ech accept confirmation",
  *                        ClientHelloInner...ServerHelloECHConf)
  */
+# define SECH2_ACCEPT_CONFIRMATION_OFFSET SSL3_HM_HEADER_LENGTH /* 4 */ + CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
+
+int sech_calc_confirm_server(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen
+        )
+    ;
+int sech_calc_confirm_client(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen
+        )
+    ;
+
+int ssl_sech2_calc_accept_confirmation_functional(
+        SSL_CONNECTION * s,
+        const unsigned char * sech_iv,
+        const unsigned char * sech_symmetric_key,
+        const size_t sech_symmetric_key_len,
+        const char * sech_decrypted_inner_servername,
+        const unsigned char * sech_transcript_hash,
+        const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
+        unsigned char * accept_confirmation_out)
+    ;
+
 int ech_calc_confirm(SSL_CONNECTION *s, int for_hrr, unsigned char *acbuf,
                      const unsigned char *shbuf, const size_t shlen);
 
@@ -565,6 +593,16 @@ int ech_copy_inner2outer(SSL_CONNECTION *s, uint16_t ext_type, WPACKET *pkt);
 int ech_get_retry_configs(SSL_CONNECTION *s, unsigned char **rcfgs,
                           size_t *rcfgslen);
 
+int sech_make_transcript_buffer(SSL_CONNECTION *s, int for_hrr,
+                               const unsigned char *shbuf, size_t shlen,
+                               unsigned char **tbuf, size_t *tlen,
+                               size_t *chend, size_t *fixedshbuf_len)
+    ;
+int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
+                               const unsigned char *shbuf, size_t shlen,
+                               unsigned char **tbuf, size_t *tlen,
+                               size_t *chend, size_t *fixedshbuf_len)
+    ;
 /*
  * @brief make up a buffer to use to reset transcript
  * @param s is the SSL connection

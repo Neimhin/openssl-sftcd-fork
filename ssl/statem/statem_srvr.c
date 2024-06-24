@@ -1478,6 +1478,29 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
     CLIENTHELLO_MSG *clienthello = NULL;
 
 #ifndef OPENSSL_NO_ECH
+
+
+    fprintf(stderr, "packet remaining: %lu\n", PACKET_remaining(pkt));
+    BIO_dump_fp(stderr, PACKET_data(pkt), PACKET_remaining(pkt));
+
+    if(s->ext.sech_version == 2)
+    {
+        const unsigned char * data = NULL;
+        size_t len = 0;
+        unsigned char * dest = NULL;
+
+        data = PACKET_data(pkt);
+        len = PACKET_remaining(pkt);
+        dest = OPENSSL_malloc(len);
+        if(dest == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
+        s->ext.sech_client_hello_transcript_for_confirmation = dest;
+        s->ext.sech_client_hello_transcript_for_confirmation_len = len;
+        memcpy(dest, data, len); // TODO: can we achieve this safely without a copy?
+    }
+
     /*
      * For split-mode we want to have a way to point at the CH octets
      * for the accept-confirmation calculation.
@@ -2039,9 +2062,6 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
 
 
 
-    int sech_accepted = s->ext.sech_version == 2 &&
-        (s->ext.sech_peer_inner_servername != NULL) &&
-        (strlen(s->ext.sech_peer_inner_servername) > 0);
     /*
      * Check if we want to use external pre-shared secret for this handshake
      * for not reused session only. We need to generate server_random before
@@ -2049,21 +2069,13 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
      * processing to use it in key derivation.
      */
 
-    if(!sech_accepted)
-    {
-        unsigned char *pos;
-        pos = s->s3.server_random;
-        if (ssl_fill_hello_random(s, 1, pos, SSL3_RANDOM_SIZE, dgrd) <= 0) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
+    unsigned char *pos;
+    pos = s->s3.server_random;
+    if (ssl_fill_hello_random(s, 1, pos, SSL3_RANDOM_SIZE, dgrd) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
     }
-    else
-    {
-        // TODO: construct cryptographic acceptance signal
-        unsigned char zeros[32] = {0};
-        memcpy(s->s3.server_random, zeros, SSL3_RANDOM_SIZE);
-    }
+
 
     if (!s->hit && !tls1_set_server_sigalgs(s)) {
         /* SSLfatal() already called */
@@ -2532,7 +2544,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     }
 
     /*-
-     * There are several cases for the session ID to send
+     * There/are several cases for the session ID to send
      * back in the server hello:
      * - For session reuse from the session cache,
      *   we send back the old session ID.
@@ -2546,7 +2558,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
      * - In TLSv1.3 we echo back the session id sent to us by the client
      *   regardless
      * s->hit is non-zero in either case of session reuse,
-     * so the following won't overwrite an ID that we're supposed
+     * so the following on't overwrite an ID that we're supposed
      * to send back.
      */
     if (!(SSL_CONNECTION_GET_CTX(s)->session_cache_mode & SSL_SESS_CACHE_SERVER)
@@ -2666,11 +2678,55 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     }
 
 #ifndef OPENSSL_NO_ECH
+    /* 
+     * Calculate the SECH-accept server random.
+     */
+    int sech2_accepted = s->ext.sech_version == 2 &&
+        (s->ext.sech_peer_inner_servername != NULL) &&
+        (strlen(s->ext.sech_peer_inner_servername) > 0);
+    if(sech2_accepted)
+    {
+        fprintf(stderr, "SECH accepted: server(%i)\n", s->server); // TODO verbose guard
+                                                                   //
+        unsigned char * server_hello_buf = NULL;  // TODO: this code is unnecessarily duplicated for ECH
+        size_t server_hello_buf_len = 0;
+        unsigned char sech_acbuf[8] = {0};
+
+        if (WPACKET_get_total_written(pkt, &server_hello_buf_len) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        server_hello_buf = WPACKET_get_curr(pkt) - server_hello_buf_len;
+        fprintf(stderr, "server hello on server\n");
+        BIO_dump_fp(stderr, server_hello_buf, server_hello_buf_len);
+        if (sech_calc_confirm_server(s, sech_acbuf, server_hello_buf + 4, server_hello_buf_len - 4) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        BIO_dump_fp(stderr, sech_acbuf, 8);
+        BIO_dump_fp(stderr, s->s3.server_random, SSL3_RANDOM_SIZE);
+        memcpy(s->s3.server_random + SSL3_RANDOM_SIZE - 8, sech_acbuf, 8); // TODO: How to accept BOTH SECH and ECH?
+        int shoffset= SSL3_HM_HEADER_LENGTH /* 4 */
+              + CLIENT_VERSION_LEN /* 2 */
+              + SSL3_RANDOM_SIZE /* 32 */
+              - 8;
+        memcpy(server_hello_buf + shoffset, sech_acbuf, 8);
+        fprintf(stderr, "inserting accept_confirmation:\n");
+        BIO_dump_fp(stderr, sech_acbuf, 8);
+        BIO_dump_fp(stderr, server_hello_buf, server_hello_buf_len);
+    }
+
+
+# ifdef OSSL_ECH_SUPERVERBOSE
+    fprintf(stderr, "server random before populating ECH accept_confirmation:\n");
+    BIO_dump_fp(stderr, s->s3.server_random, SSL3_RANDOM_SIZE);
+# endif
     /*
      * Calculate the ECH-accept server random to indicate that
      * we're accepting ECH, if that's the case
      */
-    if (s->ext.ech.attempted_type == TLSEXT_TYPE_ech
+    if (!sech2_accepted
+        && s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
         && (s->ext.ech.backend == 1
             || (s->ext.ech.cfgs != NULL && s->ext.ech.success == 1))) {
         unsigned char acbuf[8];
@@ -2692,6 +2748,10 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         memcpy(s->s3.server_random + SSL3_RANDOM_SIZE - 8, acbuf, 8);
+# ifdef OSSL_ECH_SUPERVERBOSE
+        fprintf(stderr, "server random after populating ECH accept_confirmation:\n");
+        BIO_dump_fp(stderr, s->s3.server_random, SSL3_RANDOM_SIZE);
+# endif
         if (hrr == 0) {
             /* confirm value hacked into SH.random rightmost octets */
             shoffset= SSL3_HM_HEADER_LENGTH /* 4 */
