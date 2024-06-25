@@ -3520,9 +3520,6 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
            *fixedshbuf_len);
     BUF_MEM_free(shpkt_mem);
     WPACKET_cleanup(&shpkt);
-# ifdef OSSL_ECH_SUPERVERBOSE
-    ech_pbuf("cx: fixed sh buf", fixedshbuf, *fixedshbuf_len);
-# endif
     if ((tpkt_mem = BUF_MEM_new()) == NULL
         || !BUF_MEM_grow(tpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
         || !WPACKET_init(&tpkt, tpkt_mem)) {
@@ -3530,11 +3527,6 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
-
-    // memset(fixedshbuf + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8);
-
-    fprintf(stderr, "sever hello on client\n");
-    BIO_dump_fp(stderr, fixedshbuf, fixedshbuf_len);
 
     fprintf(stderr, "client hello on client\n");
     BIO_dump_fp(stderr, s->ext.sech_client_hello_transcript_for_confirmation, s->ext.sech_client_hello_transcript_for_confirmation_len);
@@ -3554,8 +3546,8 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
     memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
     WPACKET_cleanup(&tpkt);
     BUF_MEM_free(tpkt_mem);
-    fprintf(stderr, "tbuf client(%i):\n", tlen);
-    BIO_dump_fp(stderr, tbuf, tlen);
+    fprintf(stderr, "tbuf client(%i):\n", *tlen);
+    BIO_dump_fp(stderr, tbuf, *tlen);
     return 1;
 err:
     if (s->ext.ech.kepthrr != fixedshbuf) /* don't double-free */

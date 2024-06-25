@@ -2419,10 +2419,6 @@ const OPTIONS *test_get_options(void)
 
 #endif
 
-// static int sanity_check_fail(int idx)
-// {
-//     return 0;
-// }
 
 int sech2_tried_but_not_accepted__servername_callback(SSL *s, int *al, void *arg)
 {
@@ -2785,13 +2781,6 @@ static int sech2_roundtrip_wrong_key(int idx)
     return 1;
 }
 
-static int sech2_accept_confirmation(int idx)
-{
-    int rv = 0;
-end:
-    return rv;
-}
-
 int setup_tests(void)
 {
 #ifndef OPENSSL_NO_ECH
@@ -2851,7 +2840,6 @@ int setup_tests(void)
     ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
-    ADD_ALL_TESTS(sech2_accept_confirmation, 1);
     return 1;
 err:
     return 0;

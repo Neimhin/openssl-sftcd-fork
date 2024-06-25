@@ -1821,8 +1821,8 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
         goto err;
     }
-    fprintf(stderr, "server hello on client (%i)\n", shlen);
-    BIO_dump_fp(stderr, shbuf, shlen);
+    // fprintf(stderr, "server hello on client (%i)\n", shlen);
+    // BIO_dump_fp(stderr, shbuf, shlen);
 #endif
 
     if (!PACKET_get_net_2(pkt, &sversion)) {
@@ -2159,9 +2159,6 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         /* SSLfatal() already called */
         goto err;
     }
-
-    EVP_MD * md = ssl_handshake_md(s);
-    fprintf(stderr, "ssl_handshake_md: (%p)\n", md);
 
 #ifdef OPENSSL_NO_COMP
     if (compression != 0) {
