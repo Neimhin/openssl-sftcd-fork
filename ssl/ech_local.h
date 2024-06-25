@@ -410,7 +410,7 @@ int ech_same_key_share(void);
  *                        "ech accept confirmation",
  *                        ClientHelloInner...ServerHelloECHConf)
  */
-# define SECH2_ACCEPT_CONFIRMATION_OFFSET SSL3_HM_HEADER_LENGTH /* 4 */ + CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
+# define SECH2_ACCEPT_CONFIRMATION_OFFSET CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
 
 int sech_calc_confirm_server(
         SSL_CONNECTION *s,
@@ -423,7 +423,8 @@ int sech_calc_confirm_client(
         SSL_CONNECTION *s,
         unsigned char *acbuf,
         const unsigned char *shbuf,
-        size_t shlen
+        size_t shlen,
+        EVP_MD * md
         )
     ;
 

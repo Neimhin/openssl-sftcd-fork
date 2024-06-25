@@ -1480,9 +1480,6 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 #ifndef OPENSSL_NO_ECH
 
 
-    fprintf(stderr, "packet remaining: %lu\n", PACKET_remaining(pkt));
-    BIO_dump_fp(stderr, PACKET_data(pkt), PACKET_remaining(pkt));
-
     if(s->ext.sech_version == 2)
     {
         const unsigned char * data = NULL;
@@ -2697,36 +2694,17 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         server_hello_buf = WPACKET_get_curr(pkt) - server_hello_buf_len;
-        fprintf(stderr, "server hello on server\n");
-        BIO_dump_fp(stderr, server_hello_buf, server_hello_buf_len);
         if (sech_calc_confirm_server(s, sech_acbuf, server_hello_buf + 4, server_hello_buf_len - 4) != 1) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
-        BIO_dump_fp(stderr, sech_acbuf, 8);
-        BIO_dump_fp(stderr, s->s3.server_random, SSL3_RANDOM_SIZE);
-        memcpy(s->s3.server_random + SSL3_RANDOM_SIZE - 8, sech_acbuf, 8); // TODO: How to accept BOTH SECH and ECH?
-        int shoffset= SSL3_HM_HEADER_LENGTH /* 4 */
-              + CLIENT_VERSION_LEN /* 2 */
-              + SSL3_RANDOM_SIZE /* 32 */
-              - 8;
-        memcpy(server_hello_buf + shoffset, sech_acbuf, 8);
-        fprintf(stderr, "inserting accept_confirmation:\n");
-        BIO_dump_fp(stderr, sech_acbuf, 8);
-        BIO_dump_fp(stderr, server_hello_buf, server_hello_buf_len);
+        memcpy(server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET + 4, sech_acbuf, 8);
     }
-
-
-# ifdef OSSL_ECH_SUPERVERBOSE
-    fprintf(stderr, "server random before populating ECH accept_confirmation:\n");
-    BIO_dump_fp(stderr, s->s3.server_random, SSL3_RANDOM_SIZE);
-# endif
     /*
      * Calculate the ECH-accept server random to indicate that
      * we're accepting ECH, if that's the case
      */
-    if (!sech2_accepted
-        && s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
+    if (!sech2_accepted && s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
         && (s->ext.ech.backend == 1
             || (s->ext.ech.cfgs != NULL && s->ext.ech.success == 1))) {
         unsigned char acbuf[8];
@@ -2748,10 +2726,6 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         memcpy(s->s3.server_random + SSL3_RANDOM_SIZE - 8, acbuf, 8);
-# ifdef OSSL_ECH_SUPERVERBOSE
-        fprintf(stderr, "server random after populating ECH accept_confirmation:\n");
-        BIO_dump_fp(stderr, s->s3.server_random, SSL3_RANDOM_SIZE);
-# endif
         if (hrr == 0) {
             /* confirm value hacked into SH.random rightmost octets */
             shoffset= SSL3_HM_HEADER_LENGTH /* 4 */

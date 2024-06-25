@@ -1227,8 +1227,17 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         return 0;
     }
     /* If we're not really attempting ECH, just call existing code.  */
-    if (s->ext.ech.cfgs == NULL)
-        return tls_construct_client_hello_aux(s, pkt);
+    if (s->ext.ech.cfgs == NULL) {
+        int rv = tls_construct_client_hello_aux(s, pkt);
+        size_t written;
+        if(!WPACKET_get_total_written(pkt, &written))
+            goto err;
+        unsigned char * ch = WPACKET_get_curr(pkt) - written;
+        s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch + 4, written - 4);
+        s->ext.sech_client_hello_transcript_for_confirmation_len = written - 4;
+
+        return rv;
+    }
     /* note version we're attempting and that an attempt is being made */
     if (s->ext.ech.cfgs->cfg != NULL && s->ext.ech.cfgs->cfg->recs != NULL) {
         if (ech_pick_matching_cfg(s, &tc, &suite) != 1 || tc == NULL) {
@@ -1401,6 +1410,13 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         OPENSSL_free(s->clienthello);
         s->clienthello = NULL;
     }
+
+    size_t written;
+    if(!WPACKET_get_total_written(pkt, &written))
+        goto err;
+    unsigned char * ch = WPACKET_get_curr(pkt) - written;
+    fprintf(stderr, "ch on client\n");
+    BIO_dump_fp(stderr, ch, written);
     return 1;
 err:
     WPACKET_cleanup(&inner);
@@ -1502,7 +1518,6 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
             size_t key_len = s->ext.sech_symmetric_key_len;
             size_t cipher_text_len;
             memcpy(plaintext, s->ext.sech_inner_servername, strlen((char *)s->ext.sech_inner_servername));
-            fprintf(stderr, "plaintext: %s\n", plaintext);
 
             int encryptrv = sech_helper_encrypt(
               NULL,                   // SSL * s,
@@ -1519,20 +1534,10 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
               NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
             );
 
-            fprintf(stderr, "iv:\n");
-            BIO_dump_fp(stderr, iv, iv_len);
-
-            fprintf(stderr, "tag:\n");
-            BIO_dump_fp(stderr, tag, tag_len);
-
-            fprintf(stderr, "cipher_text:\n");
-            BIO_dump_fp(stderr, cipher_text, cipher_text_len);
-
             unsigned char bytes[SSL3_RANDOM_SIZE] = {0};
             memcpy(p, iv, iv_len);
             memcpy(p+iv_len, cipher_text, cipher_text_len);
             memcpy(p+iv_len+cipher_text_len, tag, tag_len);
-            fprintf(stderr, "SECH: using sech_version 2 CH random\n");
         }
     }
 #endif
@@ -1805,34 +1810,6 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
 #endif
 #ifndef OPENSSL_NO_ECH
 
-    unsigned char * server_hello = NULL;
-    size_t server_hello_len;
-    PACKET_memdup(pkt, &server_hello, &server_hello_len);
-    fprintf(stderr, "server_hello on client:\n");
-    BIO_dump_fp(stderr, server_hello, server_hello_len);
-
-    if(s->ext.sech_version == 2) {
-      unsigned char acbuf[8];
-      if(!sech_calc_confirm_client(
-                  s,
-                  acbuf,
-                  server_hello,
-                  server_hello_len 
-              ))
-      {
-          SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
-          goto err;
-      }
-      
-      fprintf(stderr, "accept confirmation on client:\n");
-      BIO_dump_fp(stderr, acbuf, 8);
-      BIO_dump_fp(stderr, server_hello + 2 + SSL3_RANDOM_SIZE - 8, 8);
-
-      BIO_dump_fp(stderr, server_hello, 100);
-      if(memcmp(server_hello + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
-          fprintf(stderr, "SECH ACCEPT CONFIRMATION SEEN ON CLIENT\n");
-      }
-    }
     const unsigned char *shbuf = NULL;
     size_t shlen, chend, fixedshbuf_len, alen;
     /* client and server accept signal buffers */
@@ -1844,6 +1821,8 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
         goto err;
     }
+    fprintf(stderr, "server hello on client (%i)\n", shlen);
+    BIO_dump_fp(stderr, shbuf, shlen);
 #endif
 
     if (!PACKET_get_net_2(pkt, &sversion)) {
@@ -1876,17 +1855,6 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
             SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
             goto err;
         }
-
-        unsigned char zeros[32] = {0};
-        if(memcmp(zeros, s->s3.server_random, SSL3_RANDOM_SIZE) == 0) // TODO: replace this dummy acceptance signal
-        {
-            fprintf(stderr, "SECH: client saw accept_confirmation signal\n");
-            s->ext.sech_peer_inner_servername = s->ext.sech_inner_servername;
-        }
-        else 
-        {
-            s->ext.sech_peer_inner_servername = NULL;
-        }
     }
 
     /* Get the session-id. */
@@ -1904,6 +1872,45 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
     if (!PACKET_get_bytes(pkt, &cipherchars, TLS_CIPHER_LEN)) {
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
         goto err;
+    }
+
+    if(s->ext.sech_version == 2) {
+      SSL_CIPHER * c = NULL;
+      EVP_MD * md = NULL;
+      fprintf(stderr, "cipherchars:\n");
+      BIO_dump_fp(stderr, cipherchars, TLS_CIPHER_LEN);
+
+      c = ssl_get_cipher_by_char(s, cipherchars, 0);
+      if (c == NULL) { /* fuzzer fix */
+          SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_R_ECH_REQUIRED);
+          return 0;
+      }
+      md = (EVP_MD *)ssl_md(s->ssl.ctx, c->algorithm2);
+      if (md == NULL) {
+          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+          return 0;
+      }
+      unsigned char acbuf[8];
+      if(!sech_calc_confirm_client(
+                  s,
+                  acbuf,
+                  shbuf,
+                  shlen,
+                  md
+              ))
+      {
+          SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
+          goto err;
+      }
+
+      BIO_dump_fp(stderr, acbuf, 8);
+      BIO_dump_fp(stderr, shbuf + 2 + SSL3_RANDOM_SIZE - 8, 8);
+      BIO_dump_fp(stderr, shbuf, shlen);
+      if(memcmp(shbuf + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
+          fprintf(stderr, "SECH ACCEPT CONFIRMATION SEEN ON CLIENT\n");
+          fprintf(stderr, "%s\n", s->ext.sech_inner_servername);
+          s->ext.sech_peer_inner_servername = s->ext.sech_inner_servername;
+      }
     }
 
     if (!PACKET_get_1(pkt, &compression)) {
@@ -1970,11 +1977,13 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
     }
 #endif
 
+    fprintf(stderr, "hrr: %i\n", hrr);
     /* TLS extensions */
     if (PACKET_remaining(pkt) == 0 && !hrr) {
         PACKET_null_init(&extpkt);
     } else if (!PACKET_as_length_prefixed_2(pkt, &extpkt)
                || PACKET_remaining(pkt) != 0) {
+        fprintf(stderr, "packet remaining: %i\n", PACKET_remaining(pkt));
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_BAD_LENGTH);
         goto err;
     }
@@ -2150,6 +2159,9 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         /* SSLfatal() already called */
         goto err;
     }
+
+    EVP_MD * md = ssl_handshake_md(s);
+    fprintf(stderr, "ssl_handshake_md: (%p)\n", md);
 
 #ifdef OPENSSL_NO_COMP
     if (compression != 0) {

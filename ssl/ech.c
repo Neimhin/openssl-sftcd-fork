@@ -3471,10 +3471,8 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)
 {
-    unsigned char *fixedshbuf = NULL, *hashin = NULL, hashval[EVP_MAX_MD_SIZE];
-    unsigned int hashlen = 0, hashin_len = 0;
+    unsigned char *fixedshbuf = NULL;
     EVP_MD_CTX *ctx = NULL;
-    EVP_MD *md = NULL;
     WPACKET tpkt, shpkt;
     BUF_MEM *tpkt_mem = NULL, *shpkt_mem = NULL;
 
@@ -3502,8 +3500,8 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
     }
     fprintf(stderr, "shlen before: %ld\n", shlen);
     if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO) // message type (MT) is server hello
-        || !WPACKET_put_bytes_u24(&shpkt, shlen - 4)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
-        || !WPACKET_memcpy(&shpkt, shbuf + 4, shlen -4) // if(server) copy in server hello skipping first 4 bytes
+        || !WPACKET_put_bytes_u24(&shpkt, shlen)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
+        || !WPACKET_memcpy(&shpkt, shbuf, shlen) // if(server) copy in server hello skipping first 4 bytes
         || !WPACKET_get_length(&shpkt, fixedshbuf_len)) { // retrieve true length for this message (for server: 1 + shlen - 4, for client: 1 + shlen)
         BUF_MEM_free(shpkt_mem);
         WPACKET_cleanup(&shpkt);
@@ -3511,6 +3509,7 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
         goto err;
     }
     fprintf(stderr, "shlen after: %ld\n", *fixedshbuf_len);
+    BIO_dump_fp(stderr, shbuf, shlen);
     fixedshbuf = OPENSSL_malloc(*fixedshbuf_len);
     if (fixedshbuf == NULL) {
         BUF_MEM_free(shpkt_mem);
@@ -3532,6 +3531,14 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
         return 0;
     }
 
+    // memset(fixedshbuf + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8);
+
+    fprintf(stderr, "sever hello on client\n");
+    BIO_dump_fp(stderr, fixedshbuf, fixedshbuf_len);
+
+    fprintf(stderr, "client hello on client\n");
+    BIO_dump_fp(stderr, s->ext.sech_client_hello_transcript_for_confirmation, s->ext.sech_client_hello_transcript_for_confirmation_len);
+
     if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
                         s->ext.sech_client_hello_transcript_for_confirmation_len)
         || !WPACKET_get_length(&tpkt, chend)
@@ -3547,6 +3554,8 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
     memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
     WPACKET_cleanup(&tpkt);
     BUF_MEM_free(tpkt_mem);
+    fprintf(stderr, "tbuf client(%i):\n", tlen);
+    BIO_dump_fp(stderr, tbuf, tlen);
     return 1;
 err:
     if (s->ext.ech.kepthrr != fixedshbuf) /* don't double-free */
@@ -3562,10 +3571,8 @@ int sech_make_transcript_buffer_server(SSL_CONNECTION *s, int for_hrr,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)
 {
-    unsigned char *fixedshbuf = NULL, *hashin = NULL, hashval[EVP_MAX_MD_SIZE];
-    unsigned int hashlen = 0, hashin_len = 0;
+    unsigned char *fixedshbuf = NULL;
     EVP_MD_CTX *ctx = NULL;
-    EVP_MD *md = NULL;
     WPACKET tpkt, shpkt;
     BUF_MEM *tpkt_mem = NULL, *shpkt_mem = NULL;
 
@@ -3593,8 +3600,8 @@ int sech_make_transcript_buffer_server(SSL_CONNECTION *s, int for_hrr,
     }
     fprintf(stderr, "shlen before: %ld\n", shlen);
     if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO) // message type (MT) is server hello
-        || !WPACKET_put_bytes_u24(&shpkt, shlen - 4)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
-        || !WPACKET_memcpy(&shpkt, shbuf + 4, shlen -4) // if(server) copy in server hello skipping first 4 bytes
+        || !WPACKET_put_bytes_u24(&shpkt, shlen)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
+        || !WPACKET_memcpy(&shpkt, shbuf, shlen) // if(server) copy in server hello skipping first 4 bytes
         || !WPACKET_get_length(&shpkt, fixedshbuf_len)) { // retrieve true length for this message (for server: 1 + shlen - 4, for client: 1 + shlen)
         BUF_MEM_free(shpkt_mem);
         WPACKET_cleanup(&shpkt);
@@ -3841,30 +3848,26 @@ int sech_calc_confirm_server(
     unsigned char *fixedshbuf = NULL;
     size_t tlen = 0, chend = 0;
     unsigned int hashlen = 0;
-    unsigned char * hacked_server_hello_buf = OPENSSL_malloc(shlen); // TODO free
-    if(hacked_server_hello_buf == NULL) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return CON_FUNC_ERROR;
-    }
-    memcpy(hacked_server_hello_buf, shbuf, shlen); // TODO: no need to make hacked_server_hello_buf copy? just use on server_hello_buf directly?
 
-    fprintf(stderr, "SECH2_ACCEPT_CONFIRMATION_OFFSET: %i\n", SECH2_ACCEPT_CONFIRMATION_OFFSET);
-    memset(hacked_server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
 
-    BIO_dump_fp(stderr, hacked_server_hello_buf, shlen);
+    unsigned char * shbuf_zeroed = OPENSSL_malloc(shlen);
+    if(shbuf_zeroed == NULL) return 0;
+    memcpy(shbuf_zeroed, shbuf, shlen);
+    memset(shbuf_zeroed + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
 
     md = (EVP_MD *)ssl_handshake_md(s);
     if ((hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE)
         goto err;
     if (sech_make_transcript_buffer_server(
                 s, for_hrr,
-                shbuf, shlen,
+                shbuf_zeroed, shlen,
                 &tbuf, &tlen,
                 &chend, &shlen) != 1)
         goto err;
 
+
+    fprintf(stderr, "server tbuf\n");
     BIO_dump_fp(stderr, tbuf, tlen);
-    fprintf(stderr, "hashlen: %i\n", hashlen);
 
     unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
     unsigned int sech_transcript_hash_len = 0;
@@ -3879,11 +3882,11 @@ int sech_calc_confirm_server(
     }
     EVP_MD_CTX_free(ctx);
     ctx = NULL;
-
-    fprintf(stderr, "sech_transcript_hash:\n"); // TODO verbose guard
-    BIO_dump_fp(stderr, sech_transcript_hash, sech_transcript_hash_len);
-
     unsigned char * sech_iv = tbuf + 6;
+    fprintf(stderr, "sech_iv on server\n");
+    BIO_dump_fp(stderr, sech_iv, 12);
+    fprintf(stderr, "trans hash on server\n");
+    BIO_dump_fp(stderr, sech_transcript_hash, EVP_MD_size(md));
     const unsigned char sech_symmetric_key[32] = {0}; // TODO
     const char * sech_decrypted_inner_servername = "inner.com";
     if(!ssl_sech2_calc_accept_confirmation_functional(
@@ -3898,10 +3901,6 @@ int sech_calc_confirm_server(
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-
-    fprintf(stderr, "sech accept_confirmation:\n");
-    BIO_dump_fp(stderr, acbuf, 8);
-
 err:
     OPENSSL_free(fixedshbuf);
     OPENSSL_free(tbuf);
@@ -3913,37 +3912,35 @@ int sech_calc_confirm_client(
         SSL_CONNECTION *s,
         unsigned char *acbuf,
         const unsigned char *shbuf,
-        size_t shlen
+        size_t shlen,
+        EVP_MD * md
         )
 {
     int for_hrr = 0;
     int rv = 1;
     EVP_MD_CTX *ctx = NULL;
-    EVP_MD *md = NULL;
     unsigned char *tbuf = NULL;
     unsigned char *fixedshbuf = NULL;
     size_t tlen = 0, chend = 0;
     unsigned int hashlen = 0;
-    unsigned char * hacked_server_hello_buf = OPENSSL_malloc(shlen); // TODO free
-    if(hacked_server_hello_buf == NULL) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return CON_FUNC_ERROR;
-    }
-    memcpy(hacked_server_hello_buf, shbuf, shlen); // TODO: no need to make hacked_server_hello_buf copy? just use on server_hello_buf directly?
-
-    fprintf(stderr, "SECH2_ACCEPT_CONFIRMATION_OFFSET: %i", SECH2_ACCEPT_CONFIRMATION_OFFSET);
-    memset(hacked_server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
-
-    BIO_dump_fp(stderr, hacked_server_hello_buf, shlen);
-    if (get_md_from_hs(s, &md, shbuf, shlen) != 1
-        || (hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE) // TODO: check this for SECH client
+    if(md == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
         goto err;
-    if (sech_make_transcript_buffer_client(s, for_hrr, shbuf, shlen, &tbuf, &tlen,
+    }
+    unsigned char * shbuf_zeroed = OPENSSL_malloc(shlen);
+    memcpy(shbuf_zeroed, shbuf, shlen);
+    // if (get_md_from_hs(s, &md, shbuf, shlen) != 1
+    //     || (hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE) // TODO: check this for SECH client
+    //     goto err;
+    memset(shbuf_zeroed + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8);
+    fprintf(stderr, "sh zeroed on client\n");
+    BIO_dump_fp(stderr, shbuf_zeroed, shlen);
+    if (sech_make_transcript_buffer_client(s, for_hrr, shbuf_zeroed, shlen, &tbuf, &tlen,
                                    &chend, &shlen) != 1)
         goto err;
 
+    fprintf(stderr, "client tbuf\n");
     BIO_dump_fp(stderr, tbuf, tlen);
-    fprintf(stderr, "hashlen: %i\n", hashlen);
 
     unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
     unsigned int sech_transcript_hash_len = 0;
@@ -3959,10 +3956,11 @@ int sech_calc_confirm_client(
     EVP_MD_CTX_free(ctx);
     ctx = NULL;
 
-    fprintf(stderr, "sech_transcript_hash:\n"); // TODO verbose guard
-    BIO_dump_fp(stderr, sech_transcript_hash, sech_transcript_hash_len);
-
     unsigned char * sech_iv = tbuf + 6;
+    fprintf(stderr, "sech_iv on client\n");
+    BIO_dump_fp(stderr, sech_iv, 12);
+    fprintf(stderr, "trans hash on client\n");
+    BIO_dump_fp(stderr, sech_transcript_hash, EVP_MD_size(md));
     const unsigned char sech_symmetric_key[32] = {0}; // TODO
     const char * sech_decrypted_inner_servername = "inner.com";
     if(!ssl_sech2_calc_accept_confirmation_functional(
@@ -3977,10 +3975,6 @@ int sech_calc_confirm_client(
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-
-    fprintf(stderr, "sech accept_confirmation on client:\n");
-    BIO_dump_fp(stderr, acbuf, 8);
-
 err:
     OPENSSL_free(fixedshbuf);
     OPENSSL_free(tbuf);
