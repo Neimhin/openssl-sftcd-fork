@@ -2680,7 +2680,8 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
      */
     int sech2_accepted = s->ext.sech_version == 2 &&
         (s->ext.sech_peer_inner_servername != NULL) &&
-        (strlen(s->ext.sech_peer_inner_servername) > 0);
+        (strlen(s->ext.sech_peer_inner_servername) > 0) &&
+        s->hello_retry_request != SSL_HRR_PENDING;
     if(sech2_accepted)
     {
         fprintf(stderr, "SECH accepted: server(%i)\n", s->server); // TODO verbose guard

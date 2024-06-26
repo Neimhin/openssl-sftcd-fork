@@ -412,6 +412,32 @@ int ech_same_key_share(void);
  */
 # define SECH2_ACCEPT_CONFIRMATION_OFFSET CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
 
+int sech_helper_encrypt(
+    SSL * s,
+    unsigned char * plain,
+    size_t plain_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char ** iv,
+    size_t * iv_len,
+    unsigned char ** cipher_text,
+    size_t * cipher_text_len,
+    unsigned char ** tag,
+    size_t * tag_len,
+    char * cipher_suite);
+int sech_helper_decrypt(
+    SSL * s,
+    unsigned char * cipher_text,
+    size_t cipher_text_len,
+    unsigned char * tag,
+    size_t tag_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char * iv,
+    size_t  iv_len,
+    unsigned char ** plain_text,
+    size_t * plain_text_len,
+    char * cipher_suite);
 int sech_calc_confirm_server(
         SSL_CONNECTION *s,
         unsigned char *acbuf,
@@ -594,7 +620,7 @@ int ech_copy_inner2outer(SSL_CONNECTION *s, uint16_t ext_type, WPACKET *pkt);
 int ech_get_retry_configs(SSL_CONNECTION *s, unsigned char **rcfgs,
                           size_t *rcfgslen);
 
-int sech_make_transcript_buffer(SSL_CONNECTION *s, int for_hrr,
+int sech_make_transcript_buffer_server(SSL_CONNECTION *s,
                                const unsigned char *shbuf, size_t shlen,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)

@@ -9,6 +9,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/hpke.h>
+#include <openssl/sech.h>
 #include "testutil.h"
 #include "helpers/ssltestlib.h"
 
@@ -2576,6 +2577,121 @@ int sech2_roundtrip_accept__servername_cb(SSL *s, int *al, void *arg)
     return 1;
 }
 
+struct sech_roundtrip_opt {
+    char should_succeed;
+    char force_hrr;
+    char * certsdir;
+    char * inner_cert_file;
+    int (*servername_cb)(SSL*s, int*al, void*arg);
+};
+
+static const inline struct sech_roundtrip_opt default_opt()
+{
+    struct sech_roundtrip_opt opt = {
+        .should_succeed = 1,
+        .force_hrr = 0,
+        .certsdir = certsdir,
+        .inner_cert_file = "inner.crt",
+        .servername_cb = sech2_roundtrip_accept__servername_cb,
+    };
+    return opt;
+}
+
+
+static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
+{
+    char * inner_cert_file = test_mk_file_path(opt.certsdir, opt.inner_cert_file);
+    char * inner_key_file  = test_mk_file_path(opt.certsdir, "inner.key");
+    char * outer_cert_file = test_mk_file_path(opt.certsdir, "outer.crt");
+    char * outer_key_file  = test_mk_file_path(opt.certsdir, "outer.key");
+    char * inner_servername = "inner.com";
+    char * outer_servername = "outer.com";
+    X509 * inner_cert = load_cert(inner_cert_file);
+    if(inner_cert == NULL) return 0;
+
+    if(verbose) {
+      X509_NAME *subject = X509_get_subject_name(inner_cert);
+      if (subject) {
+          char *subject_str = X509_NAME_oneline(subject, NULL, 0);
+          if (subject_str) {
+              printf("Inner certificate subject: %s\n", subject_str);
+              OPENSSL_free(subject_str);
+          }
+      }
+    }
+
+
+    SSL_CTX *cctx = NULL, *sctx = NULL;
+    SSL_CTX *inner_sctx = NULL;
+    inner_sctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method());
+    if(!TEST_ptr(inner_sctx)) return 0; // TODO cleanup/free
+    SECH_SERVERNAME_ARG servername_arg = {.inner_cert=inner_cert, .inner_ctx=inner_sctx}; 
+    SSL_CTX_set_min_proto_version(inner_sctx, TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(inner_sctx, TLS1_3_VERSION);
+    if(!TEST_int_eq(SSL_CTX_use_certificate(inner_sctx, inner_cert), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_use_PrivateKey_file(inner_sctx, inner_key_file, SSL_FILETYPE_PEM), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_check_private_key(inner_sctx), 1)) return 0; // TODO cleanup/free
+
+    if(verbose) fprintf(stderr, "inner_sctx private key checked\n");
+    if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
+                                       TLS_client_method(),
+                                       TLS1_3_VERSION, TLS1_3_VERSION,
+                                       &sctx, &cctx, outer_cert_file, outer_key_file)))
+        return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, opt.servername_cb))) return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
+    SSL_CTX_set_sech_version(cctx, 2);
+    char key[32] = {
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+    };
+    size_t key_len = sizeof(key);
+    SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
+    SSL_CTX_set_sech_version(cctx, 2);
+    SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
+    SSL_CTX_set_sech_symmetric_key(sctx, (char*)key, key_len);
+    SSL_CTX_set_sech_version(sctx, 2);
+    SSL_CTX_set_sech_inner_servername(sctx, inner_servername, 0); // len = 0 -> use strlen
+    SSL * serverssl = NULL;
+    SSL * clientssl = NULL;
+    if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
+
+    if (opt.force_hrr && !TEST_true(SSL_set1_groups_list(serverssl, "P-384")))
+        return 0;
+    if (!TEST_true(SSL_set_tlsext_host_name(clientssl, outer_servername)))                                           return 0;
+    if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))                                     return 0;
+    X509 * server_certificate = SSL_get_peer_certificate(clientssl);
+    // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
+    if(server_certificate == NULL) return 0;
+    int check_host = X509_check_host(server_certificate, inner_servername, 0, 0, NULL);
+    if(check_host != 1) {
+        if(verbose)
+            TEST_info("sech2_roundtrip_accept got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
+        return 0;
+    }
+
+    char * client_inner_sni = NULL, * client_outer_sni = NULL;
+    char * server_inner_sni = NULL, * server_outer_sni = NULL;
+    int client_status = SSL_get_sech_status(clientssl, &client_inner_sni, &client_outer_sni);
+    int server_status = SSL_get_sech_status(serverssl, &server_inner_sni, &server_outer_sni);
+    if(!TEST_int_eq(client_status, SSL_SECH_STATUS_SUCCESS)) return 0;
+    if(!TEST_int_eq(server_status, SSL_SECH_STATUS_SUCCESS)) return 0;
+    return 1;
+}
+
+static int test_sech2_roundtrip_hrr_accept(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    opt.force_hrr = 1;
+    return sech2_roundtrip(idx, opt);
+}
+
 static int sech2_roundtrip_accept(int idx)
 {
     char * inner_cert_file = test_mk_file_path(certsdir, "inner.crt");
@@ -2729,7 +2845,7 @@ static int sech2_roundtrip_wrong_key(int idx)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_wrong_key__servername_cb))) return 0;
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
-    char key[4] = {
+    char key[32] = {
         0xab, 0xab, 0xab, 0xab,
         0xab, 0xab, 0xab, 0xab,
         0xab, 0xab, 0xab, 0xab,
@@ -2739,7 +2855,7 @@ static int sech2_roundtrip_wrong_key(int idx)
         0xab, 0xab, 0xab, 0xab,
         0xab, 0xab, 0xab, 0xab,
     };
-    char server_key[4] = {
+    char server_key[32] = {
         0xba, 0xba, 0xba, 0xba,
         0xba, 0xba, 0xba, 0xba,
         0xba, 0xba, 0xba, 0xba,
@@ -2839,6 +2955,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
+    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 1);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
     return 1;
 err:

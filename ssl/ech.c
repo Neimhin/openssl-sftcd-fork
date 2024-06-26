@@ -3558,7 +3558,7 @@ err:
     return 0;
 }
 
-int sech_make_transcript_buffer_server(SSL_CONNECTION *s, int for_hrr,
+int sech_make_transcript_buffer_server(SSL_CONNECTION *s,
                                const unsigned char *shbuf, size_t shlen,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)
@@ -3851,7 +3851,7 @@ int sech_calc_confirm_server(
     if ((hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE)
         goto err;
     if (sech_make_transcript_buffer_server(
-                s, for_hrr,
+                s,
                 shbuf_zeroed, shlen,
                 &tbuf, &tlen,
                 &chend, &shlen) != 1)
@@ -6411,54 +6411,4 @@ err:
     OPENSSL_free(new_echs);
     return rv;
 }
-
-int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len)
-{
-    if (key == NULL) return 0;
-    if (ctx == NULL) return 0;
-    ctx->ext.sech_symmetric_key = OPENSSL_malloc(key_len);
-    if(ctx->ext.sech_symmetric_key == NULL) return 0;
-    ctx->ext.sech_symmetric_key_len = key_len;
-    for(int i = 0; i < key_len; ++i) ctx->ext.sech_symmetric_key[i] = key[i];
-    return 1;
-}
-
-int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version)
-{
-  switch(version)
-  {
-    case 2:
-        ctx->ext.sech_version = version;
-        return 1;
-    default:
-        return 0;
-  }
-}
-
-int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len)
-{
-    if(inner_servername_len == 0 && inner_servername != NULL) {
-      inner_servername_len = strlen(inner_servername);
-    }
-    ctx->ext.sech_inner_servername_len = inner_servername_len;
-    ctx->ext.sech_inner_servername = (unsigned char *)inner_servername;
-    return 1;
-}
-
-int SSL_CTX_set_sech_inner_cert_and_key_files(SSL_CTX *ctx, char* cert_filename, char*key_filename)
-{
-    // TODO not yet implemented
-    return 0;
-}
-
-int SSL_get_sech_status(SSL * ssl, char **inner_sni, char **outer_sni)
-{
-    SSL_CONNECTION *s = SSL_CONNECTION_FROM_SSL(ssl);
-    if(s->ext.sech_peer_inner_servername != NULL) {
-        *inner_sni = s->ext.sech_peer_inner_servername;
-        return SSL_SECH_STATUS_SUCCESS;
-    }
-    return SSL_SECH_STATUS_FAILED;
-}
-
 #endif

@@ -1097,7 +1097,7 @@ struct ssl_ctx_st {
         struct cert_st * sech_inner_cert;
         unsigned char * sech_symmetric_key;
                  size_t sech_symmetric_key_len;
-        unsigned char * sech_inner_servername;
+        char * sech_inner_servername;
         size_t sech_inner_servername_len;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
@@ -1601,7 +1601,7 @@ struct ssl_connection_st {
         unsigned char * sech_symmetric_key;
                  size_t sech_symmetric_key_len;
         int sech_version;
-        unsigned char * sech_inner_servername;
+        char * sech_inner_servername;
                  size_t sech_inner_servername_len;
         char * sech_peer_inner_servername;
         unsigned char * sech_client_hello_transcript_for_confirmation;
