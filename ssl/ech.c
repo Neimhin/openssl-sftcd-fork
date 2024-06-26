@@ -3880,7 +3880,7 @@ int sech_calc_confirm_server(
     fprintf(stderr, "trans hash on server\n");
     BIO_dump_fp(stderr, sech_transcript_hash, EVP_MD_size(md));
     const unsigned char sech_symmetric_key[32] = {0}; // TODO
-    const char * sech_decrypted_inner_servername = "inner.com";
+    const char * sech_decrypted_inner_servername = s->ext.sech_peer_inner_servername;
     if(!ssl_sech2_calc_accept_confirmation_functional(
         s,
         sech_iv,
@@ -3954,7 +3954,7 @@ int sech_calc_confirm_client(
     fprintf(stderr, "trans hash on client\n");
     BIO_dump_fp(stderr, sech_transcript_hash, EVP_MD_size(md));
     const unsigned char sech_symmetric_key[32] = {0}; // TODO
-    const char * sech_decrypted_inner_servername = "inner.com";
+    const char * sech_decrypted_inner_servername = s->ext.sech_inner_servername;
     if(!ssl_sech2_calc_accept_confirmation_functional(
         s,
         sech_iv,

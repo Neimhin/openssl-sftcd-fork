@@ -1534,6 +1534,10 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
               NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
             );
 
+            if(iv_len + cipher_text_len + tag_len > SSL3_RANDOM_SIZE) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
             unsigned char bytes[SSL3_RANDOM_SIZE] = {0};
             memcpy(p, iv, iv_len);
             memcpy(p+iv_len, cipher_text, cipher_text_len);
