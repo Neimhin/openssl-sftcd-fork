@@ -1508,44 +1508,56 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
         if(s->ext.sech_version == 2) {
             // TODO: encrypt sni and put into p
             // p
+            static const int inner_random_len = OSSL_SECH2_INNER_RANDOM_LEN;
             unsigned char * iv = NULL;
             unsigned char * tag = NULL;
             size_t tag_len = 8;
             size_t iv_len = 0;
-            unsigned char plaintext[12] = {0};
-            unsigned char * cipher_text;
+            s->ext.sech_inner_random = OPENSSL_malloc(inner_random_len);
+            unsigned char plaintext[12 + inner_random_len];
+            memset(plaintext, 0, 12 + inner_random_len);
             unsigned char * key = s->ext.sech_symmetric_key;
             size_t key_len = s->ext.sech_symmetric_key_len;
-            size_t cipher_text_len;
-            memcpy(plaintext, s->ext.sech_inner_servername, strlen((char *)s->ext.sech_inner_servername));
+            
+            if(RAND_bytes_ex(sctx->libctx, s->ext.sech_inner_random, inner_random_len, RAND_DRBG_STRENGTH) <= 0) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
+            memcpy(plaintext, s->ext.sech_inner_servername, strlen((char *)s->ext.sech_inner_servername)); // TODO max strlen 12
+            memcpy(plaintext + 12, s->ext.sech_inner_random, inner_random_len);
 
             int encryptrv = sech_helper_encrypt(
               NULL,                   // SSL * s,
               (unsigned char *)plaintext, // unsigned char * plain,
-              12,              // int plain_len,
+              12 + inner_random_len,  // int plain_len,
               key,                    // unsigned char * key,
               key_len,                // int key_len,
               &iv,                    // unsigned char ** iv,
               &iv_len,                // int * iv_len,
-              &cipher_text,           // unsigned char ** cipher_text,
-              &cipher_text_len,       // int * cipher_text_len,
+              &(s->ext.sech_cipher_text),           // unsigned char ** cipher_text,
+              &(s->ext.sech_cipher_text_len),       // int * cipher_text_len,
               &tag,                   // char ** tag,
               &tag_len,               // size_t * tag_len,
               NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
             );
+            fprintf(stderr, "sech plain_text on client:\n");
+            BIO_dump_fp(stderr, plaintext, 12 + inner_random_len);
+            fprintf(stderr, "sech cipher_text on client:\n");
+            BIO_dump_fp(stderr, s->ext.sech_cipher_text, s->ext.sech_cipher_text_len);
 
             if(encryptrv != 1) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;
             }
             else {
-              if(iv_len + cipher_text_len + tag_len > SSL3_RANDOM_SIZE) {
+              if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32)) {
                   SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                   return CON_FUNC_ERROR;
               }
               memcpy(p, iv, iv_len);
-              memcpy(p+iv_len, cipher_text, cipher_text_len);
-              memcpy(p+iv_len+cipher_text_len, tag, tag_len);
+              memcpy(p+iv_len, s->ext.sech_cipher_text, 12);
+              memcpy(p+iv_len+12, tag, tag_len);
+              // later on: put encrypted inner random in legacy_session_id field
             }
         }
     }
@@ -1612,11 +1624,17 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
             sess_id_len = sizeof(s->tmp_session_id);
             s->tmp_session_id_len = sess_id_len;
             session_id = s->tmp_session_id;
+            
             if (s->hello_retry_request == SSL_HRR_NONE
-                    && RAND_bytes_ex(sctx->libctx, s->tmp_session_id,
-                                     sess_id_len, 0) <= 0) {
-                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-                return CON_FUNC_ERROR;
+                    ) {
+                if(s->ext.sech_inner_random) {
+                    assert(sess_id_len == OSSL_SECH2_INNER_RANDOM_LEN);
+                    memcpy(s->tmp_session_id, s->ext.sech_cipher_text + 12, sess_id_len);
+                }
+                else if(RAND_bytes_ex(sctx->libctx, s->tmp_session_id, sess_id_len, 0) <= 0) {
+                    SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                    return CON_FUNC_ERROR;
+                }
             }
         } else {
             sess_id_len = 0;
@@ -1830,9 +1848,13 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
         goto err;
     }
-    // fprintf(stderr, "server hello on client (%i)\n", shlen);
-    // BIO_dump_fp(stderr, shbuf, shlen);
-#endif
+
+    {
+        char name[64] = {0};
+        print_hrr(s->hello_retry_request, name);
+        fprintf(stderr, "%s\n", name);
+    }
+#endif//OPENSSL_NO_ECH
 
     if (!PACKET_get_net_2(pkt, &sversion)) {
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
@@ -1855,6 +1877,20 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
             goto err;
         }
         hrr = 1;
+#ifndef OPENSSL_NO_ECH
+        {
+            // save hrr for sech_accept_confirmation signal
+            fprintf(stderr, "saving hrr buf client [%lu]\n", shlen);
+            s->ext.sech_hrr = OPENSSL_malloc(shlen); // TODO free
+            if(s->ext.sech_hrr == NULL) {
+                SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
+                goto err;
+            }
+            s->ext.sech_hrr_len = shlen;
+            memcpy(s->ext.sech_hrr, shbuf, shlen);
+            BIO_dump_fp(stderr, s->ext.sech_hrr, s->ext.sech_hrr_len);
+        }
+#endif//OPENSSL_NO_ECH
         if (!PACKET_forward(pkt, SSL3_RANDOM_SIZE)) {
             SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
             goto err;
@@ -1993,7 +2029,6 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
             /* SSLfatal() already called */
             goto err;
         }
-
         return tls_process_as_hello_retry_request(s, &extpkt);
     }
 

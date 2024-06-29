@@ -28,6 +28,23 @@
 #include "internal/ktls.h"
 #include "quic/quic_local.h"
 
+
+int print_hrr(SSL_HRR_STATE hrr, char name[64])
+{
+    switch(hrr) {
+        case SSL_HRR_NONE:
+           memcpy(name, "SSL_HRR_NONE", sizeof("SSL_HRR_NONE"));
+           return 1;
+        case SSL_HRR_PENDING:
+           memcpy(name, "SSL_HRR_PENDING", sizeof("SSL_HRR_PENDING"));
+           return 1;
+        case SSL_HRR_COMPLETE:
+           memcpy(name, "SSL_HRR_COMPLETE", sizeof("SSL_HRR_COMPLETE"));
+           return 1;
+    }
+    return 0;
+}
+
 static int ssl_undefined_function_3(SSL_CONNECTION *sc, unsigned char *r,
                                     unsigned char *s, size_t t, size_t *u)
 {
@@ -916,6 +933,9 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
     s->ext.sech_version = ctx->ext.sech_version;
     s->ext.sech_inner_cert = ssl_cert_dup(ctx->ext.sech_inner_cert);
     s->ext.sech_peer_inner_servername = NULL;
+    s->ext.sech_hrr = NULL;
+    s->ext.sech_hrr_len = 0;
+    s->ext.sech_inner_random = NULL;
     if(ctx->ext.sech_symmetric_key != NULL) {
         unsigned char * ptr = ctx->ext.sech_symmetric_key;
         size_t len = ctx->ext.sech_symmetric_key_len;

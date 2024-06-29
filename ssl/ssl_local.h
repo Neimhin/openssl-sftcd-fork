@@ -392,6 +392,11 @@ typedef enum {
     SSL_PHA_REQUESTED        /* request received by client, or sent by server */
 } SSL_PHA_STATE;
 
+typedef enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE} SSL_HRR_STATE;
+
+int print_hrr(SSL_HRR_STATE hrr, char name[64]);
+
+
 /* CipherSuite length. SSLv3 and all TLS versions. */
 # define TLS_CIPHER_LEN 2
 /* used to hold info on the particular ciphers used */
@@ -1506,8 +1511,8 @@ struct ssl_connection_st {
     size_t cert_verify_hash_len;
 
     /* Flag to indicate whether we should send a HelloRetryRequest or not */
-    enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE}
-        hello_retry_request;
+    SSL_HRR_STATE hello_retry_request;
+
 
     /*
      * the session_id_context is used to ensure sessions are only reused in
@@ -1607,6 +1612,11 @@ struct ssl_connection_st {
         unsigned char * sech_client_hello_transcript_for_confirmation;
         size_t sech_client_hello_transcript_for_confirmation_len;
         int sech_status;
+        unsigned char * sech_hrr;
+        size_t sech_hrr_len;
+        unsigned char * sech_inner_random;
+        unsigned char * sech_cipher_text;
+        size_t sech_cipher_text_len;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */

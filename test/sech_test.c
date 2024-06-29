@@ -2577,22 +2577,69 @@ int sech2_roundtrip_accept__servername_cb(SSL *s, int *al, void *arg)
     return 1;
 }
 
+struct sech_key {
+    char data[32];
+    size_t length;
+};
+
+static const struct sech_key key1 = {
+    .data = {
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+        0xab, 0xab, 0xab, 0xab,
+    },
+    .length = 32,
+};
+
+static const struct sech_key key2 = {
+    .data = {
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+        0xba, 0xba, 0xba, 0xba,
+    },
+    .length = 32,
+};
+
+struct sech_roundtrip_expect {
+    char check_host[256];
+    int client_status;
+    int server_status;
+};
+
 struct sech_roundtrip_opt {
-    char should_succeed;
     char force_hrr;
     char * certsdir;
     char * inner_cert_file;
     int (*servername_cb)(SSL*s, int*al, void*arg);
+    struct sech_key client_key;
+    struct sech_key server_key;
+    struct sech_roundtrip_expect expect;
 };
 
 static const inline struct sech_roundtrip_opt default_opt()
 {
     struct sech_roundtrip_opt opt = {
-        .should_succeed = 1,
         .force_hrr = 0,
         .certsdir = certsdir,
         .inner_cert_file = "inner.crt",
         .servername_cb = sech2_roundtrip_accept__servername_cb,
+        .client_key = key1,
+        .server_key = key1,
+        .expect = {
+            .check_host = "inner.com",
+            .client_status = SSL_SECH_STATUS_SUCCESS,
+            .server_status = SSL_SECH_STATUS_SUCCESS,
+        }
     };
     return opt;
 }
@@ -2641,21 +2688,10 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, opt.servername_cb))) return 0;
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
-    char key[32] = {
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-        0xab, 0xab, 0xab, 0xab,
-    };
-    size_t key_len = sizeof(key);
-    SSL_CTX_set_sech_symmetric_key(cctx, (char*)key, key_len);
+    SSL_CTX_set_sech_symmetric_key(sctx, opt.server_key.data, opt.server_key.length);
     SSL_CTX_set_sech_version(cctx, 2);
     SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
-    SSL_CTX_set_sech_symmetric_key(sctx, (char*)key, key_len);
+    SSL_CTX_set_sech_symmetric_key(cctx, opt.client_key.data, opt.client_key.length);
     SSL_CTX_set_sech_version(sctx, 2);
     SSL_CTX_set_sech_inner_servername(sctx, inner_servername, 0); // len = 0 -> use strlen
     SSL * serverssl = NULL;
@@ -2669,10 +2705,10 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
     // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) return 0;
-    int check_host = X509_check_host(server_certificate, inner_servername, 0, 0, NULL);
+    int check_host = X509_check_host(server_certificate, opt.expect.check_host, 0, 0, NULL);
     if(check_host != 1) {
         if(verbose)
-            TEST_info("sech2_roundtrip_accept got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
+            TEST_info("sech2_roundtrip got wrong outer_servername: expected %s: check_host=%i\n", opt.expect.check_host, check_host);
         return 0;
     }
 
@@ -2680,8 +2716,8 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     char * server_inner_sni = NULL, * server_outer_sni = NULL;
     int client_status = SSL_get_sech_status(clientssl, &client_inner_sni, &client_outer_sni);
     int server_status = SSL_get_sech_status(serverssl, &server_inner_sni, &server_outer_sni);
-    if(!TEST_int_eq(client_status, SSL_SECH_STATUS_SUCCESS)) return 0;
-    if(!TEST_int_eq(server_status, SSL_SECH_STATUS_SUCCESS)) return 0;
+    if(!TEST_int_eq(client_status, opt.expect.client_status)) return 0;
+    if(!TEST_int_eq(server_status, opt.expect.server_status)) return 0;
     return 1;
 }
 
@@ -2689,6 +2725,17 @@ static int test_sech2_roundtrip_hrr_accept(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
     opt.force_hrr = 1;
+    return sech2_roundtrip(idx, opt);
+}
+
+static int test_sech2_roundtrip_hrr_reject(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    opt.force_hrr = 1;
+    opt.server_key = key2;
+    memcpy(opt.expect.check_host, "outer.com", sizeof("outer.com"));
+    opt.expect.client_status = SSL_SECH_STATUS_FAILED;
+    opt.expect.server_status = SSL_SECH_STATUS_FAILED;
     return sech2_roundtrip(idx, opt);
 }
 
@@ -2761,7 +2808,7 @@ static int sech2_roundtrip_accept(int idx)
     // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) return 0;
     int check_host = X509_check_host(server_certificate, inner_servername, 0, 0, NULL);
-    if(check_host != 1) {
+    if(!TEST_true(check_host == 1)) {
         if(verbose)
             TEST_info("sech2_roundtrip_accept got wrong outer_servername: expected %s: check_host=%i\n", inner_servername, check_host);
         return 0;
@@ -2956,6 +3003,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 1);
+    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 1);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
     return 1;
 err:

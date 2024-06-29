@@ -3481,11 +3481,6 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
         goto err;
     }
-    if (s->hello_retry_request != SSL_HRR_NONE) // simple case not doing HRR
-    {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
-        goto err;
-    }
 
     /*
      * store SH for later, preamble has bad length at this point on server
@@ -3534,11 +3529,16 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
     if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
                         s->ext.sech_client_hello_transcript_for_confirmation_len)
         || !WPACKET_get_length(&tpkt, chend)
+        || (s->ext.sech_hrr != NULL ? !WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len) : 0)
         || !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
         || !WPACKET_get_length(&tpkt, tlen)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+    fprintf(stderr, "HRR on client [%lu]:\n", s->ext.sech_hrr_len);
+    BIO_dump_fp(stderr, s->ext.sech_hrr, s->ext.sech_hrr_len);
+    fprintf(stderr, "SH on client [%lu]:\n", *fixedshbuf_len);
+    BIO_dump_fp(stderr, fixedshbuf, *fixedshbuf_len);
     OPENSSL_free(fixedshbuf);
     *tbuf = OPENSSL_malloc(*tlen);
     if (*tbuf == NULL)
@@ -3546,8 +3546,6 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
     memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
     WPACKET_cleanup(&tpkt);
     BUF_MEM_free(tpkt_mem);
-    fprintf(stderr, "tbuf client(%i):\n", *tlen);
-    BIO_dump_fp(stderr, tbuf, *tlen);
     return 1;
 err:
     if (s->ext.ech.kepthrr != fixedshbuf) /* don't double-free */
@@ -3573,8 +3571,9 @@ int sech_make_transcript_buffer_server(SSL_CONNECTION *s,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
         goto err;
     }
-    if (s->hello_retry_request != SSL_HRR_NONE) // simple case not doing HRR
+    if (s->hello_retry_request == SSL_HRR_PENDING) // must be either SSL_HRR_NONE or SSL_HRR_COMPLETE
     {
+        fprintf(stderr, "hrr pending (ERROR)\n");
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
         goto err;
     }
@@ -3622,19 +3621,34 @@ int sech_make_transcript_buffer_server(SSL_CONNECTION *s,
         return 0;
     }
 
+    size_t hrr_end = 0;
+    fprintf(stderr, "sech_hrr (%p) [%lu]\n", s->ext.sech_hrr, s->ext.sech_hrr_len);
     if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
                         s->ext.sech_client_hello_transcript_for_confirmation_len)
         || !WPACKET_get_length(&tpkt, chend)
+        || (s->ext.sech_hrr != NULL ? !WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len) : 0)
+        || (s->ext.sech_hrr != NULL ? !WPACKET_get_length(&tpkt, &hrr_end) : 0)
         || !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
         || !WPACKET_get_length(&tpkt, tlen)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
+    }
+    if(s->ext.sech_client_hello_transcript_for_confirmation) {
+        fprintf(stderr, "CH buf:\n");
+        BIO_dump_fp(stderr, s->ext.sech_client_hello_transcript_for_confirmation, s->ext.sech_client_hello_transcript_for_confirmation_len);
+    }
+    if(s->ext.sech_hrr) {
+        fprintf(stderr, "HRR buf:\n");
+        BIO_dump_fp(stderr, s->ext.sech_hrr, s->ext.sech_hrr_len);
     }
     OPENSSL_free(fixedshbuf);
     *tbuf = OPENSSL_malloc(*tlen);
     if (*tbuf == NULL)
         goto err;
     memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
+    fprintf(stderr, "server tbuf:\n");
+    BIO_dump_fp(stderr, *tbuf, *tlen);
+
     WPACKET_cleanup(&tpkt);
     BUF_MEM_free(tpkt_mem);
     return 1;
@@ -3832,7 +3846,6 @@ int sech_calc_confirm_server(
         size_t shlen
         )
 {
-    int for_hrr = 0;
     int rv = 1;
     EVP_MD_CTX *ctx = NULL;
     EVP_MD *md = NULL;
@@ -3908,13 +3921,12 @@ int sech_calc_confirm_client(
         EVP_MD * md
         )
 {
-    int for_hrr = 0;
+    int for_hrr = 0; // TODO remove
     int rv = 1;
     EVP_MD_CTX *ctx = NULL;
     unsigned char *tbuf = NULL;
     unsigned char *fixedshbuf = NULL;
     size_t tlen = 0, chend = 0;
-    unsigned int hashlen = 0;
     if(md == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
         goto err;

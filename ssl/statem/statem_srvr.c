@@ -2678,10 +2678,15 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     /* 
      * Calculate the SECH-accept server random.
      */
+    {
+        char name[64] = {0};
+        print_hrr(s->hello_retry_request, name);
+        fprintf(stderr, "HRR state on server: %s\n", name);
+    }
     int sech2_accepted = s->ext.sech_version == 2 &&
         (s->ext.sech_peer_inner_servername != NULL) &&
         (strlen(s->ext.sech_peer_inner_servername) > 0) &&
-        s->hello_retry_request != SSL_HRR_PENDING;
+        (s->hello_retry_request == SSL_HRR_COMPLETE || s->hello_retry_request == SSL_HRR_NONE);
     if(sech2_accepted)
     {
         fprintf(stderr, "SECH accepted: server(%i)\n", s->server); // TODO verbose guard
@@ -2762,6 +2767,26 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
     }
+    if (s->hello_retry_request == SSL_HRR_PENDING) // keep hrr for sech_accept_confirmation transcript
+    {
+        unsigned char *shbuf = NULL;
+        size_t shlen = 0;
+        if (WPACKET_get_total_written(pkt, &shlen) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        shbuf = WPACKET_get_curr(pkt) - shlen;
+        s->ext.sech_hrr = OPENSSL_malloc(shlen-4);
+        s->ext.sech_hrr_len = shlen - 4;
+        if(s->ext.sech_hrr == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        memcpy(s->ext.sech_hrr, shbuf+4, shlen-4);
+        fprintf(stderr, "saving hrr [%lu]\n", s->ext.sech_hrr_len);
+        BIO_dump_fp(stderr, s->ext.sech_hrr,  s->ext.sech_hrr_len);
+    }
+
 #endif /* OPENSSL_NO_ECH */
     return CON_FUNC_SUCCESS;
 }

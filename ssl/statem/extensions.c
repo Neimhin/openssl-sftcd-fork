@@ -1109,8 +1109,13 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
     {
         unsigned char * iv = s->s3.client_random;
         size_t iv_len = 12;
-        unsigned char * cipher_text = s->s3.client_random + 12;
-        size_t cipher_text_len = 12;
+        size_t cipher_text_len = 12 + OSSL_SECH2_INNER_RANDOM_LEN;
+        unsigned char * cipher_text = OPENSSL_malloc(cipher_text_len);
+        memcpy(cipher_text, s->s3.client_random + 12, 12);
+        memcpy(cipher_text+12, s->clienthello->session_id, OSSL_SECH2_INNER_RANDOM_LEN);
+
+        fprintf(stderr, "sech cipher on server:\n");
+        BIO_dump_fp(stderr, cipher_text, 12 + 32);
         unsigned char * tag = s->s3.client_random + 24;
         size_t tag_len = 8;
         unsigned char * plain_text_out = NULL;

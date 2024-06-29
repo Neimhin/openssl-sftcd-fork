@@ -43,6 +43,6 @@ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int 
       inner_servername_len = strlen(inner_servername);
     }
     ctx->ext.sech_inner_servername_len = inner_servername_len;
-    ctx->ext.sech_inner_servername = (unsigned char *)inner_servername;
+    ctx->ext.sech_inner_servername = inner_servername;
     return 1;
 }

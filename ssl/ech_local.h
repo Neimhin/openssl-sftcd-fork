@@ -40,6 +40,8 @@
 #   define CLIENT_VERSION_LEN 2
 #  endif
 
+#  define OSSL_SECH2_INNER_RANDOM_LEN 32
+
 #  define OSSL_ECH_CIPHER_LEN 4 /* ECHCipher length (2 for kdf, 2 for aead) */
 
 /* values for s->ext.ech.grease */

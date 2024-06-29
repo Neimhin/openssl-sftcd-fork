@@ -2631,6 +2631,10 @@ DEPEND[html/man3/SSL_get_rpoll_descriptor.html]=man3/SSL_get_rpoll_descriptor.po
 GENERATE[html/man3/SSL_get_rpoll_descriptor.html]=man3/SSL_get_rpoll_descriptor.pod
 DEPEND[man/man3/SSL_get_rpoll_descriptor.3]=man3/SSL_get_rpoll_descriptor.pod
 GENERATE[man/man3/SSL_get_rpoll_descriptor.3]=man3/SSL_get_rpoll_descriptor.pod
+DEPEND[html/man3/SSL_get_sech_status.html]=man3/SSL_get_sech_status.pod
+GENERATE[html/man3/SSL_get_sech_status.html]=man3/SSL_get_sech_status.pod
+DEPEND[man/man3/SSL_get_sech_status.3]=man3/SSL_get_sech_status.pod
+GENERATE[man/man3/SSL_get_sech_status.3]=man3/SSL_get_sech_status.pod
 DEPEND[html/man3/SSL_get_session.html]=man3/SSL_get_session.pod
 GENERATE[html/man3/SSL_get_session.html]=man3/SSL_get_session.pod
 DEPEND[man/man3/SSL_get_session.3]=man3/SSL_get_session.pod
@@ -3643,6 +3647,7 @@ html/man3/SSL_get_peer_tmp_key.html \
 html/man3/SSL_get_psk_identity.html \
 html/man3/SSL_get_rbio.html \
 html/man3/SSL_get_rpoll_descriptor.html \
+html/man3/SSL_get_sech_status.html \
 html/man3/SSL_get_session.html \
 html/man3/SSL_get_shared_sigalgs.html \
 html/man3/SSL_get_stream_id.html \
@@ -4300,6 +4305,7 @@ man/man3/SSL_get_peer_tmp_key.3 \
 man/man3/SSL_get_psk_identity.3 \
 man/man3/SSL_get_rbio.3 \
 man/man3/SSL_get_rpoll_descriptor.3 \
+man/man3/SSL_get_sech_status.3 \
 man/man3/SSL_get_session.3 \
 man/man3/SSL_get_shared_sigalgs.3 \
 man/man3/SSL_get_stream_id.3 \
