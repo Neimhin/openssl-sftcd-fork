@@ -3466,10 +3466,13 @@ int ech_reset_hs_buffer(SSL_CONNECTION *s, const unsigned char *buf,
     return 1;
 }
 
-int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
-                               const unsigned char *shbuf, size_t shlen,
-                               unsigned char **tbuf, size_t *tlen,
-                               size_t *chend, size_t *fixedshbuf_len)
+int sech_make_transcript_buffer_client(SSL_CONNECTION *s,
+        const unsigned char *shbuf,
+        size_t shlen,
+        unsigned char **tbuf,
+        size_t *tlen,
+        size_t *chend,
+        size_t *fixedshbuf_len)
 {
     unsigned char *fixedshbuf = NULL;
     EVP_MD_CTX *ctx = NULL;
@@ -3523,8 +3526,15 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
     if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
                         s->ext.sech_client_hello_transcript_for_confirmation_len)
         || !WPACKET_get_length(&tpkt, chend)
-        || (s->ext.sech_hrr != NULL ? !WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len) : 0)
-        || !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
+       ) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    if(s->ext.sech_hrr != NULL) {
+        !WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len);
+    }
+    if (
+           !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
         || !WPACKET_get_length(&tpkt, tlen)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
@@ -3883,6 +3893,8 @@ int sech_calc_confirm_server(
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+    fprintf(stderr, "tbuf on server\n");
+    BIO_dump_fp(stderr, tbuf, tlen);
 err:
     EVP_MD_CTX_free(ctx);
     OPENSSL_free(tbuf);
@@ -3914,8 +3926,14 @@ int sech_calc_confirm_client(
     //     || (hashlen = EVP_MD_size(md)) > EVP_MAX_MD_SIZE) // TODO: check this for SECH client
     //     goto err;
     memset(shbuf_zeroed + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8);
-    if (sech_make_transcript_buffer_client(s, for_hrr, shbuf_zeroed, shlen, &tbuf, &tlen,
-                                   &chend, &shlen) != 1)
+    if (sech_make_transcript_buffer_client(
+                s,
+                shbuf_zeroed,
+                shlen,
+                &tbuf,
+                &tlen,
+                &chend,
+                &shlen) != 1)
         goto err;
 
     unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
@@ -3946,6 +3964,8 @@ int sech_calc_confirm_client(
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+    fprintf(stderr, "tbuf on client\n");
+    BIO_dump_fp(stderr, tbuf, tlen);
 err:
     OPENSSL_free(fixedshbuf);
     OPENSSL_free(tbuf);

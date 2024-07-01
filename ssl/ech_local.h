@@ -627,7 +627,7 @@ int sech_make_transcript_buffer_server(SSL_CONNECTION *s,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)
     ;
-int sech_make_transcript_buffer_client(SSL_CONNECTION *s, int for_hrr,
+int sech_make_transcript_buffer_client(SSL_CONNECTION *s,
                                const unsigned char *shbuf, size_t shlen,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)
