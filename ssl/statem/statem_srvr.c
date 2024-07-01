@@ -2670,6 +2670,8 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         }
     } else if (!(s->verify_mode & SSL_VERIFY_PEER)
                 && !ssl3_digest_cached_records(s, 0)) {
+        fprintf(stderr, "gonna die\n");
+        debug_print_hrr(stderr, s->hello_retry_request); 
         /* SSLfatal() already called */;
         return CON_FUNC_ERROR;
     }
@@ -2700,17 +2702,28 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         server_hello_buf = WPACKET_get_curr(pkt) - server_hello_buf_len;
-        if (sech_calc_confirm_server(s, sech_acbuf, server_hello_buf + 4, server_hello_buf_len - 4) != 1) {
+        unsigned char * shbuf = OPENSSL_malloc(server_hello_buf_len - 4);
+        if(!shbuf) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
+        memcpy(shbuf, server_hello_buf + 4, server_hello_buf_len - 4);
+        if (sech_calc_confirm_server(s, sech_acbuf, shbuf, server_hello_buf_len - 4) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        fprintf(stderr, "server sech_acbuf\n");
+        BIO_dump_fp(stderr, sech_acbuf, 8);
+        OPENSSL_free(shbuf);
         memcpy(server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET + 4, sech_acbuf, 8);
     }
     /*
      * Calculate the ECH-accept server random to indicate that
      * we're accepting ECH, if that's the case
      */
-    if (!sech2_accepted && s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
+    if (
+            // !sech2_accepted &&
+            s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
         && (s->ext.ech.backend == 1
             || (s->ext.ech.cfgs != NULL && s->ext.ech.success == 1))) {
         unsigned char acbuf[8];
@@ -2783,8 +2796,6 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         memcpy(s->ext.sech_hrr, shbuf+4, shlen-4);
-        fprintf(stderr, "saving hrr [%lu]\n", s->ext.sech_hrr_len);
-        BIO_dump_fp(stderr, s->ext.sech_hrr,  s->ext.sech_hrr_len);
     }
 
 #endif /* OPENSSL_NO_ECH */

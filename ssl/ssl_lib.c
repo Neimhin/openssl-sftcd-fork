@@ -28,6 +28,12 @@
 #include "internal/ktls.h"
 #include "quic/quic_local.h"
 
+int debug_print_hrr(FILE *f, SSL_HRR_STATE state) {
+    char name[64];
+    print_hrr(state, name);
+    fprintf(f, "SSL_HRR_STATE: %s\n", name);
+    return 1;
+}
 
 int print_hrr(SSL_HRR_STATE hrr, char name[64])
 {
@@ -931,7 +937,6 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
     s->ssl_pkey_num = SSL_PKEY_NUM + ctx->sigalg_list_len;
 #ifndef OPENSSL_NO_ECH
     s->ext.sech_version = ctx->ext.sech_version;
-    s->ext.sech_inner_cert = ssl_cert_dup(ctx->ext.sech_inner_cert);
     s->ext.sech_peer_inner_servername = NULL;
     s->ext.sech_hrr = NULL;
     s->ext.sech_hrr_len = 0;
@@ -1612,6 +1617,22 @@ void ossl_ssl_connection_free(SSL *ssl)
         BIO_free(s->s3.handshake_buffer);
         s->s3.handshake_buffer = NULL;
     }
+
+    // SECH free
+    OPENSSL_free(s->ext.sech_symmetric_key);
+    s->ext.sech_symmetric_key = NULL;
+    OPENSSL_free(s->ext.sech_inner_servername);
+    s->ext.sech_inner_servername = NULL;
+    OPENSSL_free(s->ext.sech_peer_inner_servername);
+    s->ext.sech_peer_inner_servername = NULL;
+    OPENSSL_free(s->ext.sech_client_hello_transcript_for_confirmation);
+    s->ext.sech_client_hello_transcript_for_confirmation = NULL;
+    OPENSSL_free(s->ext.sech_inner_random);
+    s->ext.sech_inner_random = NULL;
+    OPENSSL_free(s->ext.sech_hrr);
+    s->ext.sech_hrr = NULL;
+    OPENSSL_free(s->ext.sech_cipher_text);
+    s->ext.sech_cipher_text = NULL;
 #endif
 }
 
@@ -4075,11 +4096,6 @@ SSL_CTX *SSL_CTX_new_ex(OSSL_LIB_CTX *libctx, const char *propq,
         goto err;
     }
 
-    if ((ret->ext.sech_inner_cert = ssl_cert_new(SSL_PKEY_NUM + ret->sigalg_list_len)) == NULL) {
-        ERR_raise(ERR_LIB_SSL, ERR_R_SSL_LIB);
-        goto err;
-    }
-
     if (!ssl_create_cipher_list(ret,
                                 ret->tls13_ciphersuites,
                                 &ret->cipher_list, &ret->cipher_list_by_id,
@@ -4365,6 +4381,10 @@ void SSL_CTX_free(SSL_CTX *a)
         a->ext.nechs = 0;
     }
     OPENSSL_free(a->ext.alpn_outer);
+
+    // SECH SECH_free
+    OPENSSL_free(a->ext.sech_inner_servername);
+    OPENSSL_free(a->ext.sech_symmetric_key);
 #endif
 
     CRYPTO_THREAD_lock_free(a->lock);

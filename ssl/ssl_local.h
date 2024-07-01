@@ -394,6 +394,7 @@ typedef enum {
 
 typedef enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE} SSL_HRR_STATE;
 
+int debug_print_hrr(FILE *f, SSL_HRR_STATE state);
 int print_hrr(SSL_HRR_STATE hrr, char name[64]);
 
 
@@ -1099,8 +1100,7 @@ struct ssl_ctx_st {
         size_t alpn_outer_len;
         OSSL_ECH_PAD_SIZES ech_pad_sizes; /* ECH padding sizes */
         int sech_version;
-        struct cert_st * sech_inner_cert;
-        unsigned char * sech_symmetric_key;
+        unsigned char * sech_symmetric_key; // owned
                  size_t sech_symmetric_key_len;
         char * sech_inner_servername;
         size_t sech_inner_servername_len;
@@ -1602,7 +1602,6 @@ struct ssl_connection_st {
         char *hostname;
 #ifndef OPENSSL_NO_ECH
         SSL_CONNECTION_ECH ech;
-        struct cert_st * sech_inner_cert;
         unsigned char * sech_symmetric_key;
                  size_t sech_symmetric_key_len;
         int sech_version;

@@ -1105,8 +1105,19 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
     }
 
 #ifndef OPENSSL_NO_ECH
-    if(s->server && s->ext.sech_version == 2)
+    debug_print_hrr(stderr, s->hello_retry_request);
+    if(s->server) {
+        fprintf(stderr, "clienthello (%p)\n", s->clienthello);
+        fprintf(stderr, "client random (%p) + session id (%p):\n", s->s3.client_random, s->clienthello->session_id);
+        BIO_dump_fp(stderr, s->s3.client_random, 32);
+        BIO_dump_fp(stderr, s->clienthello->session_id, 32);
+    }
+    if(s->server
+            && s->ext.sech_version == 2
+            && s->ext.sech_peer_inner_servername == NULL
+      )
     {
+        fprintf(stderr, "Running decryption in final_server_name\n");
         unsigned char * iv = s->s3.client_random;
         size_t iv_len = 12;
         size_t cipher_text_len = 12 + OSSL_SECH2_INNER_RANDOM_LEN;
@@ -1114,8 +1125,6 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         memcpy(cipher_text, s->s3.client_random + 12, 12);
         memcpy(cipher_text+12, s->clienthello->session_id, OSSL_SECH2_INNER_RANDOM_LEN);
 
-        fprintf(stderr, "sech cipher on server:\n");
-        BIO_dump_fp(stderr, cipher_text, 12 + 32);
         unsigned char * tag = s->s3.client_random + 24;
         size_t tag_len = 8;
         unsigned char * plain_text_out = NULL;
@@ -1123,17 +1132,6 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         char * cipher_suite = NULL;
         unsigned char * key = s->ext.sech_symmetric_key;
         size_t key_len = s->ext.sech_symmetric_key_len;
-
-        fprintf(stderr, "iv:\n");
-        BIO_dump_fp(stderr, iv, iv_len);
-
-        fprintf(stderr, "tag:\n");
-        BIO_dump_fp(stderr, tag, tag_len);
-
-        fprintf(stderr, "cipher_text:\n");
-        BIO_dump_fp(stderr, cipher_text, cipher_text_len);
-
-
         int decryptrv = sech_helper_decrypt(
             NULL,
             (unsigned char *) cipher_text,
@@ -1152,7 +1150,12 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         if(decryptrv) {
             fprintf(stderr, "plain_text_out:\n");
             BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
-            s->ext.sech_peer_inner_servername = OPENSSL_strdup("inner.com");
+            {
+                unsigned char inner_servername[13] = {0};
+                memcpy(inner_servername, plain_text_out, 12);
+                s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
+                s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, 32);
+            }
             s->ext.hostname = s->ext.sech_peer_inner_servername;
             s->session->ext.hostname = s->ext.sech_peer_inner_servername;
             fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);

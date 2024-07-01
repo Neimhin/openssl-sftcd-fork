@@ -1047,7 +1047,7 @@ static int ech_server_normal_client(int idx)
         goto end;
     }
     int check_host = X509_check_host(server_certificate, "outer.com", 0, 0, NULL);
-    fprintf(stderr, "check host (outer.com): %i\n", check_host);
+    if(verbose)fprintf(stderr, "check host (outer.com): %i\n", check_host);
     if(check_host != 1)
         goto end;
     serverstatus = SSL_ech_get_status(serverssl, &sinner, &souter);
@@ -2718,6 +2718,15 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     int server_status = SSL_get_sech_status(serverssl, &server_inner_sni, &server_outer_sni);
     if(!TEST_int_eq(client_status, opt.expect.client_status)) return 0;
     if(!TEST_int_eq(server_status, opt.expect.server_status)) return 0;
+
+    X509_free(inner_cert);
+    SSL_shutdown(clientssl);
+    SSL_shutdown(serverssl);
+    SSL_free(clientssl);
+    SSL_free(serverssl);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    fprintf(stderr, "FINISHED SECH2 ROUNDTRIP\n");
     return 1;
 }
 
@@ -2994,7 +3003,7 @@ int setup_tests(void)
     ADD_TEST(tls_version_test);
     ADD_ALL_TESTS(basic_echconfig, 2);
     ADD_ALL_TESTS(extended_echconfig, 2);
-    ADD_ALL_TESTS(ech_roundtrip_test, 2);
+    ADD_ALL_TESTS(ech_roundtrip_test, 10);
     ADD_ALL_TESTS(test_ech_add, OSSLTEST_ECH_NTESTS);
     ADD_ALL_TESTS(test_ech_find, OSSL_NELEM(test_echconfigs));
     /*
@@ -3017,11 +3026,11 @@ int setup_tests(void)
     ADD_ALL_TESTS(sech2_tried_but_not_accepted, 1);
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
-    ADD_ALL_TESTS(test_sech2_roundtrip_accept, 1);
+    ADD_ALL_TESTS(test_sech2_roundtrip_accept, 5);
     ADD_ALL_TESTS(test_sech2_roundtrip_reject, 1);
-    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 1);
-    ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
-    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 1);
+    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 3);
+    ADD_ALL_TESTS(sech2_roundtrip_accept, 5);
+    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 5);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
     return 1;
 err:

@@ -317,7 +317,6 @@ int sech_helper_encrypt(
     int outlen, tmplen;
     unsigned char * iv_out = NULL;
     size_t tagl = *tag_len;
-    BIO_dump_fp(stderr, tag, sizeof(tag));
     if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
     EVP_CIPHER_CTX *ctx = NULL;
     EVP_CIPHER * cipher = NULL;
@@ -374,9 +373,6 @@ int sech_helper_decrypt(
     if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
     ctx = EVP_CIPHER_CTX_new();
     if ((cipher = EVP_CIPHER_fetch(NULL, cipher_suite, NULL)) == NULL) goto end;
-    BIO_dump_fp(stderr, key, key_len);
-    BIO_dump_fp(stderr, iv, iv_len);
-    BIO_dump_fp(stderr, cipher_text, cipher_text_len);
     if(!EVP_DecryptInit_ex2(ctx, cipher, key, iv, NULL)) goto end;
     if(!EVP_DecryptUpdate(ctx, buf, &buf_len, cipher_text, cipher_text_len))  goto end;
     *plain_text_len = buf_len;
