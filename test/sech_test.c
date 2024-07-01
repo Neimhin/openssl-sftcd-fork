@@ -2721,6 +2721,22 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     return 1;
 }
 
+static int test_sech2_roundtrip_accept(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    return sech2_roundtrip(idx, opt);
+}
+
+static int test_sech2_roundtrip_reject(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    opt.server_key = key2;
+    memcpy(opt.expect.check_host, "outer.com", sizeof("outer.com"));
+    opt.expect.client_status = SSL_SECH_STATUS_FAILED;
+    opt.expect.server_status = SSL_SECH_STATUS_FAILED;
+    return sech2_roundtrip(idx, opt);
+}
+
 static int test_sech2_roundtrip_hrr_accept(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
@@ -3000,9 +3016,11 @@ int setup_tests(void)
     // ADD_ALL_TESTS(sanity_check_fail, 1);
     ADD_ALL_TESTS(sech2_tried_but_not_accepted, 1);
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
-    ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
+    ADD_ALL_TESTS(test_sech2_roundtrip_accept, 1);
+    ADD_ALL_TESTS(test_sech2_roundtrip_reject, 1);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 1);
+    ADD_ALL_TESTS(sech2_roundtrip_accept, 1);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 1);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
     return 1;
