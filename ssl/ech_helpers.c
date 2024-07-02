@@ -379,7 +379,6 @@ int sech_helper_decrypt(
 
     if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, tag_len, (void*)tag)) goto end;
     if(!EVP_DecryptFinal_ex(ctx, buf + buf_len, &buf_len)) {
-        fprintf(stderr, "DecryptFinal_ex failed\n");
         ERR_print_errors_fp(stderr);
         goto end;
     }

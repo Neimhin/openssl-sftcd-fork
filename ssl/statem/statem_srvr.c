@@ -2670,8 +2670,6 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         }
     } else if (!(s->verify_mode & SSL_VERIFY_PEER)
                 && !ssl3_digest_cached_records(s, 0)) {
-        fprintf(stderr, "gonna die\n");
-        debug_print_hrr(stderr, s->hello_retry_request); 
         /* SSLfatal() already called */;
         return CON_FUNC_ERROR;
     }
@@ -2680,18 +2678,12 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     /* 
      * Calculate the SECH-accept server random.
      */
-    {
-        char name[64] = {0};
-        print_hrr(s->hello_retry_request, name);
-        fprintf(stderr, "HRR state on server: %s\n", name);
-    }
     int sech2_accepted = s->ext.sech_version == 2 &&
         (s->ext.sech_peer_inner_servername != NULL) &&
         (strlen(s->ext.sech_peer_inner_servername) > 0) &&
         (s->hello_retry_request == SSL_HRR_COMPLETE || s->hello_retry_request == SSL_HRR_NONE);
     if(sech2_accepted)
     {
-        fprintf(stderr, "SECH accepted: server(%i)\n", s->server); // TODO verbose guard
                                                                    //
         unsigned char * server_hello_buf = NULL;  // TODO: this code is unnecessarily duplicated for ECH
         size_t server_hello_buf_len = 0;
@@ -2708,12 +2700,11 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         memcpy(shbuf, server_hello_buf + 4, server_hello_buf_len - 4);
-        if (sech_calc_confirm_server(s, sech_acbuf, shbuf, server_hello_buf_len - 4) != 1) {
+        EVP_MD * md = (EVP_MD *)ssl_handshake_md(s);
+        if (sech_calc_confirm_client(s, sech_acbuf, shbuf, server_hello_buf_len - 4, s->ext.sech_peer_inner_servername, md) != 1) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
-        fprintf(stderr, "server sech_acbuf\n");
-        BIO_dump_fp(stderr, sech_acbuf, 8);
         OPENSSL_free(shbuf);
         memcpy(server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET + 4, sech_acbuf, 8);
     }

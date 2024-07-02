@@ -2,6 +2,7 @@
 #include <openssl/ech.h>
 #include "ssl_local.h"
 #include "ech_local.h"
+#ifndef OPENSSL_NO_ECH
 #include <openssl/sech.h>
 
 int SSL_get_sech_status(SSL * ssl, char **inner_sni, char **outer_sni)
@@ -46,3 +47,4 @@ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int 
     ctx->ext.sech_inner_servername = OPENSSL_strdup(inner_servername);
     return 1;
 }
+#endif//OPENSSL_NO_ECH

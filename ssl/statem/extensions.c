@@ -1105,19 +1105,11 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
     }
 
 #ifndef OPENSSL_NO_ECH
-    debug_print_hrr(stderr, s->hello_retry_request);
-    if(s->server) {
-        fprintf(stderr, "clienthello (%p)\n", s->clienthello);
-        fprintf(stderr, "client random (%p) + session id (%p):\n", s->s3.client_random, s->clienthello->session_id);
-        BIO_dump_fp(stderr, s->s3.client_random, 32);
-        BIO_dump_fp(stderr, s->clienthello->session_id, 32);
-    }
     if(s->server
             && s->ext.sech_version == 2
             && s->ext.sech_peer_inner_servername == NULL
       )
     {
-        fprintf(stderr, "Running decryption in final_server_name\n");
         unsigned char * iv = s->s3.client_random;
         size_t iv_len = 12;
         size_t cipher_text_len = 12 + OSSL_SECH2_INNER_RANDOM_LEN;
@@ -1146,19 +1138,13 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             &plain_text_out_len,
             cipher_suite
             );
-        fprintf(stderr, "final servername decryptrv: %i\n", decryptrv);
         if(decryptrv) {
-            fprintf(stderr, "plain_text_out:\n");
-            BIO_dump_fp(stderr, plain_text_out, plain_text_out_len);
             {
                 unsigned char inner_servername[13] = {0};
                 memcpy(inner_servername, plain_text_out, 12);
                 s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
                 s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, 32);
             }
-            // s->ext.hostname = s->ext.sech_peer_inner_servername;
-            // s->session->ext.hostname = s->ext.sech_peer_inner_servername;
-            // fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);
         }
     }
 #endif

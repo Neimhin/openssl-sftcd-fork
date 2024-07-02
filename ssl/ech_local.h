@@ -444,7 +444,9 @@ int sech_calc_confirm_server(
         SSL_CONNECTION *s,
         unsigned char *acbuf,
         const unsigned char *shbuf,
-        size_t shlen
+        size_t shlen,
+        const char * inner_servername,
+        EVP_MD * md
         )
     ;
 int sech_calc_confirm_client(
@@ -452,6 +454,7 @@ int sech_calc_confirm_client(
         unsigned char *acbuf,
         const unsigned char *shbuf,
         size_t shlen,
+        const char * inner_servername,
         EVP_MD * md
         )
     ;
@@ -622,12 +625,7 @@ int ech_copy_inner2outer(SSL_CONNECTION *s, uint16_t ext_type, WPACKET *pkt);
 int ech_get_retry_configs(SSL_CONNECTION *s, unsigned char **rcfgs,
                           size_t *rcfgslen);
 
-int sech_make_transcript_buffer_server(SSL_CONNECTION *s,
-                               const unsigned char *shbuf, size_t shlen,
-                               unsigned char **tbuf, size_t *tlen,
-                               size_t *chend, size_t *fixedshbuf_len)
-    ;
-int sech_make_transcript_buffer_client(SSL_CONNECTION *s,
+int sech2_make_transcript_buffer(SSL_CONNECTION *s,
                                const unsigned char *shbuf, size_t shlen,
                                unsigned char **tbuf, size_t *tlen,
                                size_t *chend, size_t *fixedshbuf_len)
