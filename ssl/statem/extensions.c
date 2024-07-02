@@ -1156,9 +1156,9 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
                 s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
                 s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, 32);
             }
-            s->ext.hostname = s->ext.sech_peer_inner_servername;
-            s->session->ext.hostname = s->ext.sech_peer_inner_servername;
-            fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);
+            // s->ext.hostname = s->ext.sech_peer_inner_servername;
+            // s->session->ext.hostname = s->ext.sech_peer_inner_servername;
+            // fprintf(stderr, "SECH:2 s->ext.hostname: %s\n", s->ext.hostname);
         }
     }
 #endif

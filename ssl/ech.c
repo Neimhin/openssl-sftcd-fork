@@ -3531,7 +3531,10 @@ int sech_make_transcript_buffer_client(SSL_CONNECTION *s,
         goto err;
     }
     if(s->ext.sech_hrr != NULL) {
-        !WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len);
+        if(!WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len)){
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
     }
     if (
            !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
@@ -3910,7 +3913,6 @@ int sech_calc_confirm_client(
         EVP_MD * md
         )
 {
-    int for_hrr = 0; // TODO remove
     int rv = 1;
     EVP_MD_CTX *ctx = NULL;
     unsigned char *tbuf = NULL;
@@ -3950,7 +3952,11 @@ int sech_calc_confirm_client(
     EVP_MD_CTX_free(ctx);
     ctx = NULL;
 
-    unsigned char * sech_iv = tbuf + 2;
+    unsigned char * sech_iv = OPENSSL_memdup(tbuf + 2,12);
+    if(!sech_iv) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
     const char * sech_decrypted_inner_servername = s->ext.sech_inner_servername;
     if(!ssl_sech2_calc_accept_confirmation_functional(
         s,
@@ -3969,6 +3975,7 @@ int sech_calc_confirm_client(
 err:
     OPENSSL_free(fixedshbuf);
     OPENSSL_free(tbuf);
+    OPENSSL_free(sech_iv);
     EVP_MD_CTX_free(ctx);
     return rv;
 }

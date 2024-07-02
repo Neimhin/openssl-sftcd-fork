@@ -3591,6 +3591,12 @@ const char *SSL_get_servername(const SSL *s, const int type)
     if (type != TLSEXT_NAMETYPE_host_name)
         return NULL;
 
+#ifndef OPENSSL_NO_ECH
+    if(sc->ext.sech_peer_inner_servername) {
+        return sc->ext.sech_peer_inner_servername;
+    }
+#endif//OPENSSL_NO_ECH
+
     if (server) {
         /**
          * Server side

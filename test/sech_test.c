@@ -3025,10 +3025,10 @@ int setup_tests(void)
     // ADD_ALL_TESTS(sanity_check_fail, 1);
     ADD_ALL_TESTS(sech2_tried_but_not_accepted, 1);
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
-    ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 1);
+    ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 5);
     ADD_ALL_TESTS(test_sech2_roundtrip_accept, 5);
-    ADD_ALL_TESTS(test_sech2_roundtrip_reject, 1);
-    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 3);
+    ADD_ALL_TESTS(test_sech2_roundtrip_reject, 5);
+    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 5);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 5);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 5);
     ADD_ALL_TESTS(ech_server_normal_client, 1);
