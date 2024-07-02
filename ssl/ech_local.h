@@ -465,6 +465,7 @@ int ssl_sech2_calc_accept_confirmation_functional(
         const unsigned char * sech_symmetric_key,
         const size_t sech_symmetric_key_len,
         const char * sech_decrypted_inner_servername,
+        const unsigned char inner_random[32],
         const unsigned char * sech_transcript_hash,
         const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
         unsigned char * accept_confirmation_out)

@@ -1499,43 +1499,40 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
     }
 #ifndef OPENSSL_NO_ECH
     else { // do SECH hello random (encrypted SNI in random)
-        if(s->ext.sech_version == 2) {
+        if(s->ext.sech_version == 2 && s->ext.sech_hrr == NULL) {
             // TODO: encrypt sni and put into p
             // p
-            static const int inner_random_len = OSSL_SECH2_INNER_RANDOM_LEN;
             unsigned char * iv = NULL;
             unsigned char * tag = NULL;
             size_t tag_len = 8;
             size_t iv_len = 0;
-            s->ext.sech_inner_random = OPENSSL_malloc(inner_random_len);
-            unsigned char plaintext[12 + inner_random_len];
-            memset(plaintext, 0, 12 + inner_random_len);
+            s->ext.sech_inner_random = OPENSSL_malloc(OSSL_SECH2_INNER_RANDOM_LEN);
+            unsigned char plaintext[12 + OSSL_SECH2_INNER_RANDOM_LEN];
+            memset(plaintext, 0, 12 + OSSL_SECH2_INNER_RANDOM_LEN);
             unsigned char * key = s->ext.sech_symmetric_key;
             size_t key_len = s->ext.sech_symmetric_key_len;
             
-            if(RAND_bytes_ex(sctx->libctx, s->ext.sech_inner_random, inner_random_len, RAND_DRBG_STRENGTH) <= 0) {
+            if(RAND_bytes_ex(sctx->libctx, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN, RAND_DRBG_STRENGTH) <= 0) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;
             }
             memcpy(plaintext, s->ext.sech_inner_servername, strlen((char *)s->ext.sech_inner_servername)); // TODO max strlen 12
-            memcpy(plaintext + 12, s->ext.sech_inner_random, inner_random_len);
+            memcpy(plaintext + 12, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
 
-            int encryptrv = sech_helper_encrypt(
-              NULL,                   // SSL * s,
-              (unsigned char *)plaintext, // unsigned char * plain,
-              12 + inner_random_len,  // int plain_len,
-              key,                    // unsigned char * key,
-              key_len,                // int key_len,
-              &iv,                    // unsigned char ** iv,
-              &iv_len,                // int * iv_len,
-              &(s->ext.sech_cipher_text),           // unsigned char ** cipher_text,
-              &(s->ext.sech_cipher_text_len),       // int * cipher_text_len,
-              &tag,                   // char ** tag,
-              &tag_len,               // size_t * tag_len,
-              NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
-            );
-
-            if(encryptrv != 1) {
+            if(1 != sech_helper_encrypt(
+                NULL,                   // SSL * s,
+                (unsigned char *)plaintext, // unsigned char * plain,
+                12 + OSSL_SECH2_INNER_RANDOM_LEN,  // int plain_len,
+                key,                    // unsigned char * key,
+                key_len,                // int key_len,
+                &iv,                    // unsigned char ** iv,
+                &iv_len,                // int * iv_len,
+                &(s->ext.sech_cipher_text),           // unsigned char ** cipher_text,
+                &(s->ext.sech_cipher_text_len),       // int * cipher_text_len,
+                &tag,                   // char ** tag,
+                &tag_len,               // size_t * tag_len,
+                NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
+            )) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;
             }

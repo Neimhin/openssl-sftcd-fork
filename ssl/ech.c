@@ -3750,17 +3750,21 @@ int sech2_calc_confirm(
         EVP_MD * md
         )
 {
-    int rv = 1;
+    int rv = 0;
     EVP_MD_CTX *ctx = NULL;
     unsigned char *tbuf = NULL;
     size_t tlen = 0, chend = 0;
+    unsigned char * shbuf_zeroed = OPENSSL_malloc(shlen);
+    unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
+    unsigned int sech_transcript_hash_len = 0;
+    unsigned char sech_iv[12];
+    unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN];
 
     if(md == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
         goto err;
     }
 
-    unsigned char * shbuf_zeroed = OPENSSL_malloc(shlen);
     if(!shbuf_zeroed) return 0;
     memcpy(shbuf_zeroed, shbuf, shlen);
     if(!(SECH2_ACCEPT_CONFIRMATION_OFFSET + 8 < shlen)) {
@@ -3778,9 +3782,6 @@ int sech2_calc_confirm(
                 &shlen) != 1)
         goto err;
 
-    unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
-    unsigned int sech_transcript_hash_len = 0;
-
     sech_transcript_hash_len = EVP_MD_size(md);
     if ((ctx = EVP_MD_CTX_new()) == NULL
         || EVP_DigestInit_ex(ctx, md, NULL) <= 0
@@ -3792,29 +3793,33 @@ int sech2_calc_confirm(
     EVP_MD_CTX_free(ctx);
     ctx = NULL;
 
-    unsigned char sech_iv[12];
     memcpy(sech_iv, tbuf+2, 12);
     if(!inner_servername) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        rv = 0;
         goto err;
     }
+    if(!s->ext.sech_inner_random) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    memcpy(inner_random, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
     if(!ssl_sech2_calc_accept_confirmation_functional(
         s,
         sech_iv,
         s->ext.sech_symmetric_key,
-        32,
+        s->ext.sech_symmetric_key_len,
         inner_servername,
+        inner_random,
         sech_transcript_hash,
         md, // which message digest algorithm to use (negotiated by server and client)
         acbuf)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+    rv = 1;
 err:
     EVP_MD_CTX_free(ctx);
     OPENSSL_free(tbuf);
-    EVP_MD_CTX_free(ctx);
     OPENSSL_free(shbuf_zeroed);
     return rv;
 }
@@ -3835,25 +3840,35 @@ int ssl_sech2_calc_accept_confirmation_functional(
         const unsigned char * sech_symmetric_key,
         const size_t sech_symmetric_key_len,
         const char * sech_decrypted_inner_servername,
+        const unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN],
         const unsigned char * sech_transcript_hash,
         const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
         unsigned char * accept_confirmation_out)
 {
     int rv = 1;
     EVP_PKEY_CTX *pctx = NULL;
-    const unsigned char * extract_key =  sech_symmetric_key;
-    const size_t extract_key_len = sech_symmetric_key_len;
+    const size_t extract_key_len = sech_symmetric_key_len + OSSL_SECH2_INNER_RANDOM_LEN;
+    unsigned char * extract_key =  OPENSSL_malloc(extract_key_len);
     unsigned char * extract_salt = NULL;
     size_t extract_salt_len = EVP_MD_size(md);
     unsigned char extracted_key[EVP_MAX_MD_SIZE];
-    unsigned char zeros[EVP_MAX_MD_SIZE];
     size_t retlen = 0;
     size_t hashlen = EVP_MD_size(md);
 
-    memset(zeros, 0, EVP_MAX_MD_SIZE);
+
+    if(extract_key == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    memcpy(extract_key, sech_symmetric_key, sech_symmetric_key_len);
+    memcpy(extract_key + sech_symmetric_key_len, inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
 
     extract_salt = OPENSSL_malloc(hashlen);
-    memcpy(extract_salt, sech_iv, 12); // TODO: make the sech_iv length a parameter of this function
+    if(extract_salt == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    memcpy(extract_salt, sech_iv, 12);
     memset(extract_salt + 12, 0, hashlen - 12);
 
     char * label = OPENSSL_malloc(sizeof("sech ac") + strlen(sech_decrypted_inner_servername));
