@@ -2701,7 +2701,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         }
         memcpy(shbuf, server_hello_buf + 4, server_hello_buf_len - 4);
         EVP_MD * md = (EVP_MD *)ssl_handshake_md(s);
-        if (sech_calc_confirm_client(s, sech_acbuf, shbuf, server_hello_buf_len - 4, s->ext.sech_peer_inner_servername, md) != 1) {
+        if (sech2_calc_confirm(s, sech_acbuf, shbuf, server_hello_buf_len - 4, s->ext.sech_peer_inner_servername, md) != 1) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }

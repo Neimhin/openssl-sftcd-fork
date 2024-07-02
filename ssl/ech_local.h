@@ -449,7 +449,7 @@ int sech_calc_confirm_server(
         EVP_MD * md
         )
     ;
-int sech_calc_confirm_client(
+int sech2_calc_confirm(
         SSL_CONNECTION *s,
         unsigned char *acbuf,
         const unsigned char *shbuf,

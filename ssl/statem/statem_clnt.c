@@ -2161,7 +2161,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           return 0;
       }
       unsigned char acbuf[8];
-      if(!sech_calc_confirm_client(
+      if(!sech2_calc_confirm(
             s,
             acbuf,
             shbuf,
