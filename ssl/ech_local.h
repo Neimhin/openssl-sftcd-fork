@@ -41,6 +41,8 @@
 #  endif
 
 #  define OSSL_SECH2_INNER_RANDOM_LEN 32
+#  define OSSL_SECH2_INNER_DATA_LEN 12
+#  define OSSL_SECH2_PLAIN_TEXT_LEN OSSL_SECH2_INNER_DATA_LEN + OSSL_SECH2_INNER_RANDOM_LEN
 
 #  define OSSL_ECH_CIPHER_LEN 4 /* ECHCipher length (2 for kdf, 2 for aead) */
 

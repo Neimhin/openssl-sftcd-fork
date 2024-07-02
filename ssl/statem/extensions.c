@@ -1138,13 +1138,17 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             &plain_text_out_len,
             cipher_suite
             );
-        if(decryptrv) {
-            {
-                unsigned char inner_servername[13] = {0};
-                memcpy(inner_servername, plain_text_out, 12);
-                s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
-                s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, 32);
-            }
+        if(plain_text_out_len != OSSL_SECH2_PLAIN_TEXT_LEN) { // COULDDO make this an assertion
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return 0;
+        }
+        else if(decryptrv) {
+            memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
+            s->ext.sech_plain_text.status = SECH2_STATUS_READY;
+            unsigned char inner_servername[13] = {0};
+            memcpy(inner_servername, plain_text_out, 12);
+            s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
+            s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, 32);
         }
     }
 #endif

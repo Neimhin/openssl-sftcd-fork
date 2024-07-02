@@ -1236,6 +1236,17 @@ struct ssl_st {
     CRYPTO_EX_DATA ex_data;
 };
 
+
+typedef enum {
+    SECH2_STATUS_NULL,
+    SECH2_STATUS_READY,
+} SECH2_STATUS;
+
+struct sech2_plain_text {
+    SECH2_STATUS status;
+    unsigned char data[OSSL_SECH2_PLAIN_TEXT_LEN];
+};
+
 struct ssl_connection_st {
     /* type identifier and common data */
     struct ssl_st ssl;
@@ -1616,6 +1627,7 @@ struct ssl_connection_st {
         unsigned char * sech_inner_random;
         unsigned char * sech_cipher_text;
         size_t sech_cipher_text_len;
+        struct sech2_plain_text sech_plain_text;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */

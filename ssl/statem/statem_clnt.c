@@ -1516,13 +1516,23 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;
             }
-            memcpy(plaintext, s->ext.sech_inner_servername, strlen((char *)s->ext.sech_inner_servername)); // TODO max strlen 12
-            memcpy(plaintext + 12, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
+            {
+                void * dst = s->ext.sech_plain_text.data;
+                void * src = s->ext.sech_inner_servername;
+                int len = strlen(src);
+                memcpy(dst, src, len); // TODO max strlen 12
+            }
+            {
+                void * dst = s->ext.sech_plain_text.data + OSSL_SECH2_INNER_DATA_LEN;
+                void * src = s->ext.sech_inner_random; 
+                int len = OSSL_SECH2_INNER_RANDOM_LEN;
+                memcpy(dst, src, len);
+            }
 
             if(1 != sech_helper_encrypt(
                 NULL,                   // SSL * s,
-                (unsigned char *)plaintext, // unsigned char * plain,
-                12 + OSSL_SECH2_INNER_RANDOM_LEN,  // int plain_len,
+                s->ext.sech_plain_text.data, // unsigned char * plain,
+                sizeof(s->ext.sech_plain_text.data),  // int plain_len,
                 key,                    // unsigned char * key,
                 key_len,                // int key_len,
                 &iv,                    // unsigned char ** iv,
@@ -1537,6 +1547,7 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
                 return CON_FUNC_ERROR;
             }
             else {
+              s->ext.sech_plain_text.status = SECH2_STATUS_READY;
               if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32)) {
                   SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                   return CON_FUNC_ERROR;
