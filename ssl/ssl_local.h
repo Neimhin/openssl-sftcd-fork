@@ -1236,14 +1236,8 @@ struct ssl_st {
     CRYPTO_EX_DATA ex_data;
 };
 
-
-typedef enum {
-    SECH2_STATUS_NULL,
-    SECH2_STATUS_READY,
-} SECH2_STATUS;
-
 struct sech2_plain_text {
-    SECH2_STATUS status;
+    char ready;
     unsigned char data[OSSL_SECH2_PLAIN_TEXT_LEN];
 };
 

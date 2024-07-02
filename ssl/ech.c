@@ -3472,25 +3472,12 @@ int sech2_make_transcript_buffer(SSL_CONNECTION *s,
         unsigned char **tbuf,
         size_t *tlen,
         size_t *chend,
-        size_t *fixedshbuf_len)
+        size_t *fixedshbuf_len) // TODO: better name for fixedshbuf_len
 {
     unsigned char *fixedshbuf = NULL;
     EVP_MD_CTX *ctx = NULL;
     WPACKET tpkt, shpkt;
     BUF_MEM *tpkt_mem = NULL, *shpkt_mem = NULL;
-
-//    if(s->server == 1)
-//    {
-//        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO better error
-//        goto err;
-//    }
-
-
-
-
-
-
-
 
     if ((shpkt_mem = BUF_MEM_new()) == NULL
         || !BUF_MEM_grow(shpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
@@ -3499,10 +3486,10 @@ int sech2_make_transcript_buffer(SSL_CONNECTION *s,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO) // message type (MT) is server hello
-        || !WPACKET_put_bytes_u24(&shpkt, shlen)    // if(server) length of server hello (skipping first 4 bytes of shbuf)
-        || !WPACKET_memcpy(&shpkt, shbuf, shlen) // if(server) copy in server hello skipping first 4 bytes
-        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) { // retrieve true length for this message (for server: 1 + shlen - 4, for client: 1 + shlen)
+    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO)
+        || !WPACKET_put_bytes_u24(&shpkt, shlen)
+        || !WPACKET_memcpy(&shpkt, shbuf, shlen)
+        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) {
         BUF_MEM_free(shpkt_mem);
         WPACKET_cleanup(&shpkt);
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -3526,12 +3513,21 @@ int sech2_make_transcript_buffer(SSL_CONNECTION *s,
         return 0;
     }
 
-    if (!WPACKET_memcpy(&tpkt, s->ext.sech_client_hello_transcript_for_confirmation,
-                        s->ext.sech_client_hello_transcript_for_confirmation_len)
-        || !WPACKET_get_length(&tpkt, chend)
-       ) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        goto err;
+    {
+        void * buf = s->ext.sech_client_hello_transcript_for_confirmation;
+        void * pkt = &tpkt;
+        void * inner_servername = s->ext.sech_plain_text.data;
+        void * inner_random = s->ext.sech_plain_text.data + 12;
+        if (
+               !WPACKET_memcpy(pkt, buf,  2 + 12) // version and sech_iv
+            || !WPACKET_memcpy(pkt, inner_servername, 12) // plain text servername 
+            || !WPACKET_memcpy(pkt, buf + 2 + 12 + 12, 8) // AEAD tag
+            || !WPACKET_memcpy(pkt, inner_random, OSSL_SECH2_INNER_RANDOM_LEN)
+            || !WPACKET_get_length(&tpkt, chend) // 
+           ) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
     }
     if(s->ext.sech_hrr != NULL) {
         if(!WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len)){

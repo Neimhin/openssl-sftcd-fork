@@ -1144,7 +1144,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         }
         else if(decryptrv) {
             memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
-            s->ext.sech_plain_text.status = SECH2_STATUS_READY;
+            s->ext.sech_plain_text.ready = 1;
             unsigned char inner_servername[13] = {0};
             memcpy(inner_servername, plain_text_out, 12);
             s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);

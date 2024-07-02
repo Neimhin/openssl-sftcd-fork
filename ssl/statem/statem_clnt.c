@@ -1547,7 +1547,7 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
                 return CON_FUNC_ERROR;
             }
             else {
-              s->ext.sech_plain_text.status = SECH2_STATUS_READY;
+              s->ext.sech_plain_text.ready = 1;
               if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32)) {
                   SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                   return CON_FUNC_ERROR;
