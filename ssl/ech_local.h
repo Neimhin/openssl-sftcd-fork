@@ -661,3 +661,5 @@ void ech_ptranscript(const char *msg, SSL_CONNECTION *s);
 #  endif
 # endif
 #endif
+
+void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);

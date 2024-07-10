@@ -1,5 +1,6 @@
 
 #include <openssl/ech.h>
+#include <openssl/rand.h>
 #include "ssl_local.h"
 #include "ech_local.h"
 #ifndef OPENSSL_NO_ECH
@@ -46,5 +47,96 @@ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int 
     ctx->ext.sech_inner_servername_len = inner_servername_len;
     ctx->ext.sech_inner_servername = OPENSSL_strdup(inner_servername);
     return 1;
+}
+
+void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
+    const size_t version_length = 2;
+    const size_t session_id_len = 32;
+    size_t written;
+    if(!WPACKET_get_total_written(pkt, &written)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    unsigned char * ch = WPACKET_get_curr(pkt) - written;
+    unsigned char * p = ch + 4 + 2;
+    unsigned char * iv = NULL;
+    unsigned char * tag = NULL;
+    size_t tag_len = 16;
+    size_t iv_len = 0;
+    s->ext.sech_inner_random = OPENSSL_malloc(OSSL_SECH2_INNER_RANDOM_LEN);
+    unsigned char * key = s->ext.sech_symmetric_key;
+    size_t key_len = s->ext.sech_symmetric_key_len;
+    SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
+    if(RAND_bytes_ex(sctx->libctx, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN, RAND_DRBG_STRENGTH) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    {
+        void * dst = s->ext.sech_plain_text.data;
+        void * src = s->ext.sech_inner_servername;
+        int len = strlen(src);
+        memcpy(dst, src, len); // TODO max strlen 36
+    }
+    {
+        void * dst = s->ext.sech_plain_text.data + OSSL_SECH2_INNER_DATA_LEN;
+        void * src = s->ext.sech_inner_random; 
+        int len = OSSL_SECH2_INNER_RANDOM_LEN;
+        memcpy(dst, src, len);
+    }
+    
+    if(1 != sech_helper_encrypt(
+        NULL,                   // SSL * s,
+        s->ext.sech_plain_text.data, // unsigned char * plain,
+        sizeof(s->ext.sech_plain_text.data),  // int plain_len,
+        key,                    // unsigned char * key,
+        key_len,                // int key_len,
+        &iv,                    // unsigned char ** iv,
+        &iv_len,                // int * iv_len,
+        &(s->ext.sech_cipher_text),           // unsigned char ** cipher_text,
+        &(s->ext.sech_cipher_text_len),       // int * cipher_text_len,
+        &tag,                   // char ** tag,
+        &tag_len,               // size_t * tag_len,
+        NULL                    // char * cipher_suite) -> NULL use default AES-128-GCM
+    )) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    else {
+      s->ext.sech_plain_text.ready = 1;
+      OPENSSL_assert(iv_len == sizeof(s->ext.sech_aead_nonce.data)); // iv_len is fixed in protocol (no negotiation))
+      memcpy(s->ext.sech_aead_nonce.data, iv, iv_len);
+      if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32)) {
+          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+          return CON_FUNC_ERROR;
+      }
+      BIO_dump_fp(stderr, ch, written);
+      unsigned char * session_id = p + 32 + 1;
+      size_t first_part_len = SSL3_RANDOM_SIZE - OSSL_SECH2_AEAD_NONCE_LEN;
+      size_t second_part_len = 32 - OSSL_SECH2_AEAD_TAG_LEN;
+      memcpy(p, iv, iv_len);
+      memcpy(p+iv_len, s->ext.sech_cipher_text, first_part_len);
+      memcpy(session_id, s->ext.sech_cipher_text + first_part_len, second_part_len);
+      memcpy(session_id + 16, tag, 16);
+      memcpy(s->ext.sech_aead_tag.data, tag, 16);
+      memcpy(s->s3.client_random, p, 32);
+      memcpy(s->tmp_session_id, session_id, 32);
+      BIO_dump_fp(stderr, ch, written);
+      s->ext.sech_aead_tag.ready = 1;
+      s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch + 4, written - 4);
+      s->ext.sech_client_hello_transcript_for_confirmation_len = written - 4;
+      s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
+              s->ext.sech_client_hello_transcript_for_confirmation,
+              s->ext.sech_client_hello_transcript_for_confirmation_len);
+      s->ext.sech_ClientHelloOuterContext_len = s->ext.sech_client_hello_transcript_for_confirmation_len;
+      {
+          void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
+          char val = 0;
+          char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
+          // replace sech cipher text and tag with 0s
+          memset(dst, val, len);
+
+      }
+      OPENSSL_free(iv);
+    }
 }
 #endif//OPENSSL_NO_ECH
