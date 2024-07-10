@@ -105,10 +105,9 @@ void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
       s->ext.sech_plain_text.ready = 1;
       OPENSSL_assert(iv_len == sizeof(s->ext.sech_aead_nonce.data)); // iv_len is fixed in protocol (no negotiation))
       memcpy(s->ext.sech_aead_nonce.data, iv, iv_len);
-      if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32)) {
-          SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-          return CON_FUNC_ERROR;
-      }
+      if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32))
+      { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return CON_FUNC_ERROR; }
+
       BIO_dump_fp(stderr, ch, written);
       unsigned char * session_id = p + 32 + 1;
       size_t first_part_len = SSL3_RANDOM_SIZE - OSSL_SECH2_AEAD_NONCE_LEN;
@@ -124,19 +123,41 @@ void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
       s->ext.sech_aead_tag.ready = 1;
       s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch + 4, written - 4);
       s->ext.sech_client_hello_transcript_for_confirmation_len = written - 4;
-      s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
-              s->ext.sech_client_hello_transcript_for_confirmation,
-              s->ext.sech_client_hello_transcript_for_confirmation_len);
-      s->ext.sech_ClientHelloOuterContext_len = s->ext.sech_client_hello_transcript_for_confirmation_len;
-      {
-          void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
-          char val = 0;
-          char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
-          // replace sech cipher text and tag with 0s
-          memset(dst, val, len);
-
-      }
+      if(!sech2_make_ClientHelloOuterContext(s))
+      { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return CON_FUNC_ERROR; }
+      // s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
+      //         s->ext.sech_client_hello_transcript_for_confirmation,
+      //         s->ext.sech_client_hello_transcript_for_confirmation_len);
+      // s->ext.sech_ClientHelloOuterContext_len = s->ext.sech_client_hello_transcript_for_confirmation_len;
+      // {
+      //     void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
+      //     char val = 0;
+      //     char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
+      //     // replace sech cipher text and tag with 0s
+      //     memset(dst, val, len);
+      // }
       OPENSSL_free(iv);
     }
+}
+
+int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s)
+{
+    const size_t session_id_len = s->tmp_session_id_len;
+    const size_t version_length = 2;
+    OPENSSL_assert(session_id_len == 32);
+    OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation);
+    OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation_len);
+    s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
+            s->ext.sech_client_hello_transcript_for_confirmation,
+            s->ext.sech_client_hello_transcript_for_confirmation_len);
+    s->ext.sech_ClientHelloOuterContext_len = s->ext.sech_client_hello_transcript_for_confirmation_len;
+    {
+        void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
+        char val = 0;
+        char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
+        // replace sech cipher text and tag with 0s
+        memset(dst, val, len);
+    }
+    return 1;
 }
 #endif//OPENSSL_NO_ECH
