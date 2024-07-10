@@ -1114,11 +1114,11 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         size_t iv_len = 12;
         size_t cipher_text_len = 12 + OSSL_SECH2_INNER_RANDOM_LEN;
         unsigned char * cipher_text = OPENSSL_malloc(cipher_text_len);
-        memcpy(cipher_text, s->s3.client_random + 12, 12);
-        memcpy(cipher_text+12, s->clienthello->session_id, OSSL_SECH2_INNER_RANDOM_LEN);
+        memcpy(cipher_text, s->s3.client_random + 12, SSL3_RANDOM_SIZE - 12);
+        memcpy(cipher_text + SSL3_RANDOM_SIZE - 12, s->clienthello->session_id, 16);
 
-        unsigned char * tag = s->s3.client_random + 24;
-        size_t tag_len = 8;
+        unsigned char * tag = s->clienthello->session_id + 16;
+        size_t tag_len = 16;
         unsigned char * plain_text_out = NULL;
         size_t plain_text_out_len = 0;
         char * cipher_suite = NULL;
@@ -1145,10 +1145,10 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         else if(decryptrv) {
             memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
             s->ext.sech_plain_text.ready = 1;
-            unsigned char inner_servername[13] = {0};
-            memcpy(inner_servername, plain_text_out, 12);
+            unsigned char inner_servername[OSSL_SECH2_INNER_DATA_LEN + 1] = {0};
+            memcpy(inner_servername, plain_text_out, OSSL_SECH2_INNER_DATA_LEN);
             s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
-            s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, 32);
+            s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, OSSL_SECH2_INNER_RANDOM_LEN);
         }
     }
 #endif

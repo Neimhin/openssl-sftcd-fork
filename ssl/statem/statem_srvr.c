@@ -2684,7 +2684,6 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         (s->hello_retry_request == SSL_HRR_COMPLETE || s->hello_retry_request == SSL_HRR_NONE);
     if(sech2_accepted)
     {
-                                                                   //
         unsigned char * server_hello_buf = NULL;  // TODO: this code is unnecessarily duplicated for ECH
         size_t server_hello_buf_len = 0;
         unsigned char sech_acbuf[8] = {0};

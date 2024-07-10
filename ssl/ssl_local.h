@@ -1241,6 +1241,16 @@ struct sech2_plain_text {
     unsigned char data[OSSL_SECH2_PLAIN_TEXT_LEN];
 };
 
+struct sech2_aead_nonce {
+    char ready;
+    unsigned char data[OSSL_SECH2_AEAD_NONCE_LEN];
+};
+
+struct sech2_aead_tag {
+    char ready;
+    unsigned char data[OSSL_SECH2_AEAD_TAG_LEN];
+};
+
 struct ssl_connection_st {
     /* type identifier and common data */
     struct ssl_st ssl;
@@ -1615,6 +1625,8 @@ struct ssl_connection_st {
         char * sech_peer_inner_servername;
         unsigned char * sech_client_hello_transcript_for_confirmation;
         size_t sech_client_hello_transcript_for_confirmation_len;
+        unsigned char * sech_ClientHelloOuterContext;
+        size_t sech_ClientHelloOuterContext_len;
         int sech_status;
         unsigned char * sech_hrr;
         size_t sech_hrr_len;
@@ -1622,6 +1634,8 @@ struct ssl_connection_st {
         unsigned char * sech_cipher_text;
         size_t sech_cipher_text_len;
         struct sech2_plain_text sech_plain_text;
+        struct sech2_aead_nonce sech_aead_nonce;
+        struct sech2_aead_tag sech_aead_tag;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */

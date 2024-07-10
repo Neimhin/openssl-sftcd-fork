@@ -3814,6 +3814,14 @@ int sech2_calc_confirm(
     }
     rv = 1;
 err:
+    fprintf(stderr, "server? (%i)\n", s->server);
+    fprintf(stderr, "tbuf:");
+    BIO_dump_fp(stderr, tbuf, tlen);
+    fprintf(stderr, "transcript hash:");
+    BIO_dump_fp(stderr, sech_transcript_hash, 48);
+    fprintf(stderr, "acbuf:");
+    BIO_dump_fp(stderr, acbuf, 8);
+
     EVP_MD_CTX_free(ctx);
     OPENSSL_free(tbuf);
     OPENSSL_free(shbuf_zeroed);
