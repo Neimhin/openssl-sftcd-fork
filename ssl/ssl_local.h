@@ -1251,6 +1251,11 @@ struct sech2_aead_tag {
     unsigned char data[OSSL_SECH2_AEAD_TAG_LEN];
 };
 
+struct sech2_session_key {
+    char ready;
+    unsigned char data[32];
+};
+
 struct ssl_connection_st {
     /* type identifier and common data */
     struct ssl_st ssl;
@@ -1636,6 +1641,7 @@ struct ssl_connection_st {
         struct sech2_plain_text sech_plain_text;
         struct sech2_aead_nonce sech_aead_nonce;
         struct sech2_aead_tag sech_aead_tag;
+        struct sech2_session_key sech_session_key;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */

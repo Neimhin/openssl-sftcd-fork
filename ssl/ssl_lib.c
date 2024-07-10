@@ -954,6 +954,7 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
         if(s->ext.sech_inner_servername == NULL) goto sslerr;
     }
     s->ext.sech_plain_text.ready = 0;
+    s->ext.sech_session_key.ready = 0;
     s->ext.ech.attempted_type = TLSEXT_TYPE_ech;
     s->ext.ech.ncfgs = ctx->ext.nechs;
     if (s->ext.ech.ncfgs > 0) {

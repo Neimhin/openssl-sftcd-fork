@@ -1239,6 +1239,10 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         }
         else { // do SECH hello random (encrypted SNI in random)
             if(s->ext.sech_version == 2 && s->ext.sech_hrr == NULL) {
+                sech2_make_ClientHelloOuterContext_client(s, pkt);
+                sech2_derive_session_key(s);
+                fprintf(stderr, "sech session key\n");
+                BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
                 sech2_edit_client_hello(s, pkt);
             }
         }

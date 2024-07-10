@@ -462,6 +462,8 @@ int sech2_calc_confirm(
         EVP_MD * md
         )
     ;
+int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt);
+int sech2_derive_session_key(SSL_CONNECTION *s);
 
 int ssl_sech2_calc_accept_confirmation_functional(
         SSL_CONNECTION * s,
@@ -469,7 +471,7 @@ int ssl_sech2_calc_accept_confirmation_functional(
         const unsigned char * sech_symmetric_key,
         const size_t sech_symmetric_key_len,
         const char * sech_decrypted_inner_servername,
-        const unsigned char inner_random[32],
+        const unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN],
         const unsigned char * sech_transcript_hash,
         const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
         unsigned char * accept_confirmation_out)

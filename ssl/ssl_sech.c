@@ -123,34 +123,27 @@ void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
       s->ext.sech_aead_tag.ready = 1;
       s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch + 4, written - 4);
       s->ext.sech_client_hello_transcript_for_confirmation_len = written - 4;
-      if(!sech2_make_ClientHelloOuterContext(s))
-      { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return CON_FUNC_ERROR; }
-      // s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
-      //         s->ext.sech_client_hello_transcript_for_confirmation,
-      //         s->ext.sech_client_hello_transcript_for_confirmation_len);
-      // s->ext.sech_ClientHelloOuterContext_len = s->ext.sech_client_hello_transcript_for_confirmation_len;
-      // {
-      //     void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
-      //     char val = 0;
-      //     char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
-      //     // replace sech cipher text and tag with 0s
-      //     memset(dst, val, len);
-      // }
       OPENSSL_free(iv);
     }
 }
 
-int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s)
+int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
 {
+    size_t written;
+    if(!WPACKET_get_total_written(pkt, &written)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    unsigned char * ch = WPACKET_get_curr(pkt) - written;
     const size_t session_id_len = s->tmp_session_id_len;
     const size_t version_length = 2;
     OPENSSL_assert(session_id_len == 32);
-    OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation);
-    OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation_len);
+    OPENSSL_assert(ch);
+    OPENSSL_assert(written);
     s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
-            s->ext.sech_client_hello_transcript_for_confirmation,
-            s->ext.sech_client_hello_transcript_for_confirmation_len);
-    s->ext.sech_ClientHelloOuterContext_len = s->ext.sech_client_hello_transcript_for_confirmation_len;
+            ch + 4,
+            written - 4);
+    s->ext.sech_ClientHelloOuterContext_len = written - 4; 
     {
         void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
         char val = 0;
@@ -159,5 +152,51 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s)
         memset(dst, val, len);
     }
     return 1;
+}
+
+int sech2_derive_session_key(SSL_CONNECTION *s)
+{
+    int rv = 0;
+    EVP_MD_CTX * ctx;
+    EVP_MD * md;
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len;
+    md = EVP_sha256();
+    if (md == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    hash_len = EVP_MD_size(md);
+    unsigned char * tbuf = s->ext.sech_ClientHelloOuterContext;
+    size_t tlen = s->ext.sech_ClientHelloOuterContext_len;
+    if ((ctx = EVP_MD_CTX_new()) == NULL
+        || EVP_DigestInit_ex(ctx, md, NULL) <= 0
+        || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0
+        || EVP_DigestFinal_ex(ctx, hash, &hash_len) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    const unsigned char * expansion_label = (unsigned char *) "sech2 session";
+    size_t labellen = sizeof("sech2 session");
+    if (!tls13_hkdf_expand(
+                s,                                       // SSL_CONNECTION *s,                            
+                md,                                      // const EVP_MD *md,
+                s->ext.sech_symmetric_key,                               // const unsigned char *secret, // TODO HKDF-Extract secret
+                expansion_label, labellen,  // const unsigned char *label, size_t labellen,
+                hash, hash_len,                        // const unsigned char *data, size_t datalen,
+                s->ext.sech_session_key.data,                                   // unsigned char *out,
+                32,                                       // size_t outlen,
+                1                                        // int fatal
+                )) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        rv = 0;
+        goto err;
+    }
+    s->ext.sech_session_key.ready = 1;
+    rv = 1;
+err:
+    EVP_MD_CTX_free(ctx);
+    EVP_MD_free(md);
+    return rv;
 }
 #endif//OPENSSL_NO_ECH
