@@ -63,8 +63,8 @@ void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
     size_t tag_len = 16;
     size_t iv_len = 12;
     s->ext.sech_inner_random = OPENSSL_malloc(OSSL_SECH2_INNER_RANDOM_LEN);
-    unsigned char * key = s->ext.sech_symmetric_key;
-    size_t key_len = s->ext.sech_symmetric_key_len;
+    unsigned char * key = s->ext.sech_session_key.data;
+    size_t key_len = sizeof(s->ext.sech_session_key.data);
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
     if(RAND_bytes_ex(sctx->libctx, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN, RAND_DRBG_STRENGTH) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -146,7 +146,7 @@ int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
     {
         void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
         char val = 0;
-        char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
+        char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN + 1; //TODO don't overwrite session_id length
         // replace sech cipher text and tag with 0s
         memset(dst, val, len);
     }
@@ -218,7 +218,7 @@ int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s)
     {
         void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
         char val = 0;
-        char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
+        char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN + 1; //TODO don't overwrite session_id length
         // replace sech cipher text and tag with 0s
         memset(dst, val, len);
     }

@@ -1104,6 +1104,18 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         return 0;
     }
 
+    if(s->ext.sech_version == 2) {
+        fprintf(stderr, "sech session id server:\n");
+        BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
+        if(!sech2_make_ClientHelloOuterContext_server(s)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return 0;
+        }
+        sech2_derive_session_key(s);
+        fprintf(stderr, "sech session key server:\n");
+        BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));
+    }
+
 #ifndef OPENSSL_NO_ECH
     if(s->server
             && s->ext.sech_version == 2
@@ -1122,8 +1134,11 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         unsigned char * plain_text_out = NULL;
         size_t plain_text_out_len = 0;
         char * cipher_suite = NULL;
-        unsigned char * key = s->ext.sech_symmetric_key;
-        size_t key_len = s->ext.sech_symmetric_key_len;
+        unsigned char * key = s->ext.sech_session_key.data;
+        size_t key_len = sizeof(s->ext.sech_session_key.data);
+        fprintf(stderr, "session key: [%lu]\n", key_len);
+        BIO_dump_fp(stderr, key, key_len);
+
         int decryptrv = sech_helper_decrypt(
             NULL,
             (unsigned char *) cipher_text,
@@ -1138,6 +1153,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             &plain_text_out_len,
             cipher_suite
             );
+        fprintf(stderr, "decryptrv: %i", decryptrv);
         if(plain_text_out_len != OSSL_SECH2_PLAIN_TEXT_LEN) { // COULDDO make this an assertion
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return 0;

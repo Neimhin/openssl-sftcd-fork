@@ -3817,9 +3817,9 @@ err:
     fprintf(stderr, "server? (%i)\n", s->server);
     fprintf(stderr, "tbuf:");
     BIO_dump_fp(stderr, tbuf, tlen);
-    fprintf(stderr, "transcript hash:");
+    fprintf(stderr, "transcript hash: %i\n", s->server);
     BIO_dump_fp(stderr, sech_transcript_hash, 48);
-    fprintf(stderr, "acbuf:");
+    fprintf(stderr, "acbuf: %i\n", s->server);
     BIO_dump_fp(stderr, acbuf, 8);
 
     EVP_MD_CTX_free(ctx);

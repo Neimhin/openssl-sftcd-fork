@@ -2244,18 +2244,6 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
     }
 
 
-    if(s->ext.sech_version == 2) {
-        fprintf(stderr, "sech session id server:\n");
-        BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
-        if(!sech2_make_ClientHelloOuterContext_server(s)) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
-        sech2_derive_session_key(s);
-        fprintf(stderr, "sech session key server:\n");
-        BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));
-    }
-
 
     sk_SSL_CIPHER_free(ciphers);
     sk_SSL_CIPHER_free(scsvs);
