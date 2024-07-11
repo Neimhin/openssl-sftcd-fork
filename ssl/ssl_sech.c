@@ -1,4 +1,3 @@
-
 #include <openssl/ech.h>
 #include <openssl/rand.h>
 #include "ssl_local.h"
@@ -59,10 +58,10 @@ void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
     }
     unsigned char * ch = WPACKET_get_curr(pkt) - written;
     unsigned char * p = ch + 4 + 2;
-    unsigned char * iv = NULL;
+    unsigned char * iv = p;
     unsigned char * tag = NULL;
     size_t tag_len = 16;
-    size_t iv_len = 0;
+    size_t iv_len = 12;
     s->ext.sech_inner_random = OPENSSL_malloc(OSSL_SECH2_INNER_RANDOM_LEN);
     unsigned char * key = s->ext.sech_symmetric_key;
     size_t key_len = s->ext.sech_symmetric_key_len;
@@ -169,6 +168,8 @@ int sech2_derive_session_key(SSL_CONNECTION *s)
     hash_len = EVP_MD_size(md);
     unsigned char * tbuf = s->ext.sech_ClientHelloOuterContext;
     size_t tlen = s->ext.sech_ClientHelloOuterContext_len;
+    fprintf(stderr, "ClientHelloOuterContext %i\n", s->server);
+    BIO_dump_fp(stderr, tbuf, tlen);
     if ((ctx = EVP_MD_CTX_new()) == NULL
         || EVP_DigestInit_ex(ctx, md, NULL) <= 0
         || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0
@@ -198,5 +199,29 @@ err:
     EVP_MD_CTX_free(ctx);
     EVP_MD_free(md);
     return rv;
+}
+
+int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s)
+{
+    size_t written = s->ext.sech_client_hello_transcript_for_confirmation_len;
+    unsigned char * ch = s->ext.sech_client_hello_transcript_for_confirmation;
+    const size_t session_id_len = s->tmp_session_id_len;
+    const size_t version_length = 2;
+    fprintf(stderr, "tmp_session_id_len: %i \n", session_id_len);
+    OPENSSL_assert(session_id_len == 32);
+    OPENSSL_assert(ch);
+    OPENSSL_assert(written);
+    s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(
+            ch,
+            written);
+    s->ext.sech_ClientHelloOuterContext_len = written; 
+    {
+        void * dst = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
+        char val = 0;
+        char len = SSL3_RANDOM_SIZE + session_id_len - OSSL_SECH2_AEAD_NONCE_LEN;
+        // replace sech cipher text and tag with 0s
+        memset(dst, val, len);
+    }
+    return 1;
 }
 #endif//OPENSSL_NO_ECH

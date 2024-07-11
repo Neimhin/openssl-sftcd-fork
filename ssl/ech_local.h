@@ -463,6 +463,7 @@ int sech2_calc_confirm(
         )
     ;
 int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt);
+int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s);
 int sech2_derive_session_key(SSL_CONNECTION *s);
 
 int ssl_sech2_calc_accept_confirmation_functional(

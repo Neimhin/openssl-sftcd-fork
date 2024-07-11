@@ -1495,7 +1495,7 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         }
         s->ext.sech_client_hello_transcript_for_confirmation = dest;
         s->ext.sech_client_hello_transcript_for_confirmation_len = len;
-        memcpy(dest, data, len); // TODO: can we achieve this safely without a copy?
+        memcpy(dest, data, len);
     }
 
     /*
@@ -2242,6 +2242,20 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         s->session->compress_meth = (comp == NULL) ? 0 : comp->id;
 #endif
     }
+
+
+    if(s->ext.sech_version == 2) {
+        fprintf(stderr, "sech session id server:\n");
+        BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
+        if(!sech2_make_ClientHelloOuterContext_server(s)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
+        sech2_derive_session_key(s);
+        fprintf(stderr, "sech session key server:\n");
+        BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));
+    }
+
 
     sk_SSL_CIPHER_free(ciphers);
     sk_SSL_CIPHER_free(scsvs);
