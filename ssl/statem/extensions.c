@@ -1160,11 +1160,16 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         }
         else if(decryptrv) {
             memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
+            sech2_make_ClientHelloInner(s);
+            sech_debug_buffer("ClientHelloInner server", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
             s->ext.sech_plain_text.ready = 1;
             unsigned char inner_servername[OSSL_SECH2_INNER_DATA_LEN + 1] = {0};
             memcpy(inner_servername, plain_text_out, OSSL_SECH2_INNER_DATA_LEN);
             s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
             s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, OSSL_SECH2_INNER_RANDOM_LEN);
+            sech2_init_finished_mac(s);
+            sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+            // sech2_swap_finish_mac(s);
         }
     }
 #endif

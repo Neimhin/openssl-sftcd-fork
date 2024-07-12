@@ -1632,6 +1632,8 @@ struct ssl_connection_st {
         size_t sech_client_hello_transcript_for_confirmation_len;
         unsigned char * sech_ClientHelloOuterContext;
         size_t sech_ClientHelloOuterContext_len;
+        unsigned char * sech_ClientHelloInner;
+        size_t sech_ClientHelloInner_len;
         int sech_status;
         unsigned char * sech_hrr;
         size_t sech_hrr_len;
@@ -1642,6 +1644,8 @@ struct ssl_connection_st {
         struct sech2_aead_nonce sech_aead_nonce;
         struct sech2_aead_tag sech_aead_tag;
         struct sech2_session_key sech_session_key;
+        EVP_MD_CTX *sech_handshake_dgst;
+        BIO *sech_handshake_buffer;
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */
@@ -2671,6 +2675,14 @@ __owur size_t ssl3_final_finish_mac(SSL_CONNECTION *s, const char *sender,
 __owur int ssl3_finish_mac(SSL_CONNECTION *s, const unsigned char *buf,
                            size_t len);
 void ssl3_free_digest_list(SSL_CONNECTION *s);
+
+#ifndef OPENSSL_NO_ECH
+__owur int sech2_init_finished_mac(SSL_CONNECTION *s);
+__owur int sech2_finish_mac(SSL_CONNECTION*s, const unsigned char*buf, size_t len);
+__owur int sech2_swap_finish_mac(SSL_CONNECTION*s);
+__owur void sech2_free_digest_list(SSL_CONNECTION*s);
+#endif//OPENSSL_NO_ECH
+
 __owur unsigned long ssl3_output_cert_chain(SSL_CONNECTION *s, WPACKET *pkt,
                                             CERT_PKEY *cpk, int for_comp);
 __owur const SSL_CIPHER *ssl3_choose_cipher(SSL_CONNECTION *s,

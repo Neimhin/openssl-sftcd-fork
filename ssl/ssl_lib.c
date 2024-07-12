@@ -1620,6 +1620,12 @@ void ossl_ssl_connection_free(SSL *ssl)
         s->s3.handshake_buffer = NULL;
     }
 
+    if (s->ext.sech_handshake_buffer != NULL) {
+        (void)BIO_set_close(s->ext.sech_handshake_buffer, BIO_CLOSE);
+        BIO_free(s->ext.sech_handshake_buffer);
+        s->ext.sech_handshake_buffer = NULL;
+    }
+
     // SECH free
     OPENSSL_free(s->ext.sech_symmetric_key);
     s->ext.sech_symmetric_key = NULL;

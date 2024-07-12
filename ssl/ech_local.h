@@ -418,6 +418,7 @@ int ech_same_key_share(void);
  */
 # define SECH2_ACCEPT_CONFIRMATION_OFFSET CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
 
+void sech_debug_buffer(char*msg, unsigned char*buf, size_t blen);
 int sech_helper_encrypt(
     SSL * s,
     unsigned char * plain,
@@ -462,6 +463,8 @@ int sech2_calc_confirm(
         EVP_MD * md
         )
     ;
+int sech2_make_ClientHelloInner(SSL_CONNECTION *s);
+int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len);
 int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt);
 int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s);
 int sech2_derive_session_key(SSL_CONNECTION *s);
@@ -665,4 +668,4 @@ void ech_ptranscript(const char *msg, SSL_CONNECTION *s);
 # endif
 #endif
 
-void sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);
+int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);

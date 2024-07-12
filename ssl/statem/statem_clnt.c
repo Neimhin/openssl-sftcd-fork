@@ -1244,6 +1244,11 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
                 fprintf(stderr, "sech session key\n");
                 BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
                 sech2_edit_client_hello(s, pkt);
+                sech2_make_ClientHelloInner(s);
+                sech2_init_finished_mac(s);
+                sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+                sech_debug_buffer("ClientHelloOuter client", s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
+                sech_debug_buffer("ClientHelloInner client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
             }
         }
     #endif//OPENSSL_NO_ECH
@@ -1814,12 +1819,11 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
 #ifndef OPENSSL_NO_ECH
         {
             // save hrr for sech_accept_confirmation signal
-            s->ext.sech_hrr = OPENSSL_malloc(shlen); // TODO free
+            s->ext.sech_hrr = OPENSSL_memdup(shbuf, shlen); // TODO free
             if(s->ext.sech_hrr == NULL) {
                 SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
                 goto err;
             }
-            memcpy(s->ext.sech_hrr, shbuf, shlen);
             s->ext.sech_hrr_len = shlen;
         }
 #endif//OPENSSL_NO_ECH
@@ -2121,6 +2125,8 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
       }
       if(memcmp(shbuf + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
           s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
+          if(s->ext.sech_hrr) 
+            sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len);
       }
     }
 #endif//OPENSSL_NO_ECH
