@@ -940,6 +940,7 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
     s->ext.sech_peer_inner_servername = NULL;
     s->ext.sech_hrr = NULL;
     s->ext.sech_hrr_len = 0;
+    s->ext.sech_dgst_swap_ready = 0;
     s->ext.sech_inner_random = NULL;
     if(ctx->ext.sech_symmetric_key != NULL) {
         unsigned char * ptr = ctx->ext.sech_symmetric_key;

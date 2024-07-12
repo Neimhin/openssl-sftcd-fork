@@ -298,57 +298,6 @@ err:
 
 #define SECH_VERBOSE 1
 
-int sech_helper_encrypt(
-    SSL * s,
-    unsigned char * plain,
-    size_t plain_len,
-    unsigned char * key,
-    size_t key_len,
-    unsigned char ** iv,
-    size_t * iv_len,
-    unsigned char ** cipher_text,
-    size_t * cipher_text_len,
-    unsigned char ** tag,
-    size_t * tag_len,
-    char * cipher_suite)
-{
-    int ret = 0;
-    unsigned char outbuf[1024];
-    int outlen, tmplen;
-    unsigned char * iv_out = NULL;
-    size_t tagl = *tag_len;
-    if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
-    EVP_CIPHER_CTX *ctx = NULL;
-    EVP_CIPHER * cipher = NULL;
-    ctx = EVP_CIPHER_CTX_new();
-    if(iv == NULL) goto end; // not allowed, must pass a pointer so the iv used can be returned
-    if ((cipher = EVP_CIPHER_fetch(NULL, cipher_suite, NULL)) == NULL) goto end;
-    if (!EVP_EncryptInit_ex2(ctx, cipher, key, *iv == NULL ? NULL : *iv, NULL)) goto end;
-    if(!EVP_EncryptUpdate(ctx, outbuf, &outlen, plain, plain_len)) goto end;
-    *iv_len = EVP_CIPHER_CTX_get_iv_length(ctx);
-    iv_out = OPENSSL_malloc(*iv_len);
-    if(iv_out == NULL) goto end;
-    *iv= iv_out;
-    if(!EVP_CIPHER_CTX_get_updated_iv(ctx, iv_out, *iv_len)) goto end;
-    if(!EVP_EncryptFinal_ex(ctx, outbuf + outlen, &tmplen)) goto end;
-    
-    if(tagl == 0) tagl = 16;
-    *tag = OPENSSL_malloc(tagl);
-    if(*tag == NULL) goto end;
-    *tag_len = tagl;
-    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, *tag_len, *tag)) goto end;
-    outlen += tmplen;
-    *cipher_text = OPENSSL_malloc(outlen + 1);
-    if (cipher_text == NULL) goto end;
-    memcpy(*cipher_text, outbuf, outlen);
-    *cipher_text_len = outlen;
-    ret = 1;
-end:
-    ERR_print_errors_fp(stderr);
-    EVP_CIPHER_CTX_free(ctx);
-    EVP_CIPHER_free(cipher);
-    return ret;
-}
 
 int sech_helper_decrypt(
     SSL * s,

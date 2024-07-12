@@ -1234,6 +1234,8 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         BIO_dump_fp(stderr, s->s3.client_random, 32);
         fprintf(stderr, "session id:\n");
         BIO_dump_fp(stderr, s->tmp_session_id, 32);
+        {
+        }
         if(s->ext.sech_version == 0 || s->ext.ech.ch_depth == OSSL_ECH_INNER_CH_TYPE) // do non-SECH hello random
         {
         }
@@ -1246,6 +1248,8 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
                 sech2_edit_client_hello(s, pkt);
                 sech2_make_ClientHelloInner(s);
                 sech2_init_finished_mac(s);
+                char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len}; // TODO put header in ClientHelloInner
+                sech2_finish_mac(s, chheader, sizeof(chheader));
                 sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                 sech_debug_buffer("ClientHelloOuter client", s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
                 sech_debug_buffer("ClientHelloInner client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
@@ -1425,6 +1429,14 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         OPENSSL_free(s->clienthello->pre_proc_exts);
         OPENSSL_free(s->clienthello);
         s->clienthello = NULL;
+    }
+
+    if( s->ext.sech_version == 2 &&
+        s->ext.sech_hrr &&
+        !sech2_save_ClientHello2(s, pkt)
+        ) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
     }
 
     return 1;
@@ -1767,6 +1779,9 @@ static int set_client_ciphersuite(SSL_CONNECTION *s,
 
 MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
 {
+#ifdef SECH_DEBUG
+    fprintf(stderr, "processing server_hello [server==%i]\n", s->server);
+#endif
     PACKET session_id, extpkt;
     size_t session_id_len;
     const unsigned char *cipherchars;
@@ -1836,6 +1851,13 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
             SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
             goto err;
         }
+    }
+
+    if(s->ext.sech_version == 2)
+    {
+        char mt_header[4] = {2,0,0,shlen};
+        sech2_finish_mac(s, mt_header, 4);
+        sech2_finish_mac(s, shbuf, shlen);
     }
 
     /* Get the session-id. */
@@ -2124,9 +2146,27 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           goto err;
       }
       if(memcmp(shbuf + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
+          // sech2_swap_finish_mac(s);
+// #ifdef SECH_DEBUG
+//             {
+//                 size_t hhlen = 0;
+//                 char handshake_hash[EVP_MAX_MD_SIZE] = {0};
+//                 ssl_handshake_hash(s, handshake_hash, sizeof(handshake_hash), &hhlen);
+//                 sech_debug_buffer("client handshake hash after ClientHelloInner", handshake_hash, hhlen);
+//             }
+// #endif
+//           char header[4] = {2, 0, 0, shlen};
+//           sech2_finish_mac(s, header, 4);
+//           sech2_finish_mac(s, shbuf, shlen);
+          s->ext.sech_dgst_swap_ready = 1;
           s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
-          if(s->ext.sech_hrr) 
-            sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len);
+          if(s->ext.sech_hrr &&
+              !sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len) &&
+              !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)) {
+              SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
+              goto err;
+          }
+          // sech2_swap_finish_mac(s);
       }
     }
 #endif//OPENSSL_NO_ECH
@@ -4456,6 +4496,9 @@ MSG_PROCESS_RETURN tls_process_hello_req(SSL_CONNECTION *s, PACKET *pkt)
 static MSG_PROCESS_RETURN tls_process_encrypted_extensions(SSL_CONNECTION *s,
                                                            PACKET *pkt)
 {
+#ifdef SECH_DEBUG
+    fprintf(stderr, "processing encrypted extensions [server==%i]\n", s->server);
+#endif
     PACKET extensions;
     RAW_EXTENSION *rawexts = NULL;
 

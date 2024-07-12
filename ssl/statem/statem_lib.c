@@ -108,6 +108,9 @@ int ssl3_do_write(SSL_CONNECTION *s, uint8_t type)
                                  (unsigned char *)&s->init_buf->data[s->init_off],
                                  written))
                 return -1;
+            if (s->ext.sech_version == 2 &&
+                    s->ext.sech_peer_inner_servername) {
+            }
     if (written == s->init_num) {
         s->statem.write_in_progress = 0;
         if (s->msg_callback)
@@ -827,6 +830,9 @@ MSG_PROCESS_RETURN tls_process_change_cipher_spec(SSL_CONNECTION *s,
 
 MSG_PROCESS_RETURN tls_process_finished(SSL_CONNECTION *s, PACKET *pkt)
 {
+#ifdef SECH_DEBUG
+    fprintf(stderr, "processing finished [server==%i]\n", s->server);
+#endif
     size_t md_len;
     SSL *ssl = SSL_CONNECTION_GET_SSL(s);
     int was_first = SSL_IS_FIRST_HANDSHAKE(s);

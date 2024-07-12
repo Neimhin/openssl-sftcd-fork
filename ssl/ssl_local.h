@@ -1634,6 +1634,8 @@ struct ssl_connection_st {
         size_t sech_ClientHelloOuterContext_len;
         unsigned char * sech_ClientHelloInner;
         size_t sech_ClientHelloInner_len;
+        unsigned char * sech_ClientHello2;
+        size_t sech_ClientHello2_len;
         int sech_status;
         unsigned char * sech_hrr;
         size_t sech_hrr_len;
@@ -1646,6 +1648,13 @@ struct ssl_connection_st {
         struct sech2_session_key sech_session_key;
         EVP_MD_CTX *sech_handshake_dgst;
         BIO *sech_handshake_buffer;
+        char sech_dgst_swap_ready;
+#ifdef SECH_DEBUG
+        unsigned char * sech_transcript_full;
+        size_t sech_transcript_full_len;
+        unsigned char * normal_transcript_full;
+        size_t normal_transcript_full_len;
+#endif
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */

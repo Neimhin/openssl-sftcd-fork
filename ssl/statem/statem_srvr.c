@@ -1472,6 +1472,9 @@ static void ssl_check_for_safari(SSL_CONNECTION *s,
 
 MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 {
+#ifdef SECH_DEBUG
+    fprintf(stderr, "process client hello\n");
+#endif
     /* |cookie| will only be initialized for DTLS. */
     PACKET session_id, compression, extensions, cookie;
     static const unsigned char null_compression = 0;
@@ -1486,9 +1489,10 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         size_t len = 0;
         unsigned char * dest = NULL;
 
-        data = PACKET_data(pkt);
-        len = PACKET_remaining(pkt);
+        data = PACKET_data(pkt); // TODO error handling
+        len = PACKET_remaining(pkt); // TODO error handling
         dest = OPENSSL_malloc(len);
+        sech_debug_buffer("client hello as seen on server", data, len);
         if(dest == NULL) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
@@ -2714,7 +2718,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
      * we're accepting ECH, if that's the case
      */
     if (
-            // !sech2_accepted &&
+            sech2_accepted &&
             s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
         && (s->ext.ech.backend == 1
             || (s->ext.ech.cfgs != NULL && s->ext.ech.success == 1))) {
@@ -2772,7 +2776,6 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
     }
-    if (s->hello_retry_request == SSL_HRR_PENDING) // keep hrr for sech_accept_confirmation transcript
     {
         unsigned char *shbuf = NULL;
         size_t shlen = 0;
@@ -2787,7 +2790,13 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
-        memcpy(s->ext.sech_hrr, shbuf+4, shlen-4);
+        if (s->hello_retry_request == SSL_HRR_PENDING) // keep hrr for sech_accept_confirmation transcript
+        {
+            memcpy(s->ext.sech_hrr, shbuf+4, shlen-4); // TODO keep header
+        }
+        shbuf[3] = shlen-4;
+        sech2_finish_mac(s, shbuf, shlen);
+        s->ext.sech_dgst_swap_ready = 1;
     }
 
 #endif /* OPENSSL_NO_ECH */

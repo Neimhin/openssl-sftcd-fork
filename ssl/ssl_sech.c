@@ -5,6 +5,57 @@
 #ifndef OPENSSL_NO_ECH
 #include <openssl/sech.h>
 
+int sech_helper_encrypt(
+    SSL * s,
+    unsigned char * plain,
+    size_t plain_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char ** iv,
+    size_t * iv_len,
+    unsigned char ** cipher_text,
+    size_t * cipher_text_len,
+    unsigned char ** tag,
+    size_t * tag_len,
+    char * cipher_suite)
+{
+    int ret = 0;
+    unsigned char outbuf[1024];
+    int outlen, tmplen;
+    unsigned char * iv_out = NULL;
+    size_t tagl = *tag_len;
+    if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
+    EVP_CIPHER_CTX *ctx = NULL;
+    EVP_CIPHER * cipher = NULL;
+    ctx = EVP_CIPHER_CTX_new();
+    if(iv == NULL) goto end; // not allowed, must pass a pointer so the iv used can be returned
+    if ((cipher = EVP_CIPHER_fetch(NULL, cipher_suite, NULL)) == NULL) goto end;
+    if (!EVP_EncryptInit_ex2(ctx, cipher, key, *iv == NULL ? NULL : *iv, NULL)) goto end;
+    if(!EVP_EncryptUpdate(ctx, outbuf, &outlen, plain, plain_len)) goto end;
+    *iv_len = EVP_CIPHER_CTX_get_iv_length(ctx);
+    iv_out = OPENSSL_malloc(*iv_len);
+    if(iv_out == NULL) goto end;
+    *iv= iv_out;
+    if(!EVP_CIPHER_CTX_get_updated_iv(ctx, iv_out, *iv_len)) goto end;
+    if(!EVP_EncryptFinal_ex(ctx, outbuf + outlen, &tmplen)) goto end;
+    
+    if(tagl == 0) tagl = 16;
+    *tag = OPENSSL_malloc(tagl);
+    if(*tag == NULL) goto end;
+    *tag_len = tagl;
+    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, *tag_len, *tag)) goto end;
+    outlen += tmplen;
+    *cipher_text = OPENSSL_malloc(outlen + 1);
+    if (cipher_text == NULL) goto end;
+    memcpy(*cipher_text, outbuf, outlen);
+    *cipher_text_len = outlen;
+    ret = 1;
+end:
+    ERR_print_errors_fp(stderr);
+    EVP_CIPHER_CTX_free(ctx);
+    EVP_CIPHER_free(cipher);
+    return ret;
+}
 void sech_debug_buffer(char*msg, unsigned char*buf, size_t blen) {
 // #ifdef SECH_DEBUG
     BIO_dump_fp(stderr, buf, blen);
@@ -33,13 +84,14 @@ void sech_debug_buffer(char*msg, unsigned char*buf, size_t blen) {
         return;
     }
     base64_hash[13]=0;
-    fprintf(stderr, "%s\n    ", base64_hash);
-    for (int i = 0; i < blen; i++) {
-        if ((i != 0) && (i % 16 == 0))
-            fprintf(stderr, "\n    ");
-        fprintf(stderr, "%02x ", (unsigned)(buf[i]));
-    }
-    fprintf(stderr, "\n");
+    fprintf(stderr, "%s\n", base64_hash);
+    BIO_dump_fp(stderr, buf, blen);
+    // for (int i = 0; i < blen; i++) {
+    //     if ((i != 0) && (i % 16 == 0))
+    //         fprintf(stderr, "\n    ");
+    //     fprintf(stderr, "%02x ", (unsigned)(buf[i]));
+    // }
+    // fprintf(stderr, "\n");
 // #endif//SECH_DEBUG
 }
 
@@ -171,6 +223,7 @@ int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
         return CON_FUNC_ERROR;
     }
     unsigned char * ch = WPACKET_get_curr(pkt) - written;
+    sech_debug_buffer("client hello as seen on client", ch, written);
     const size_t session_id_len = s->tmp_session_id_len;
     return sech2_make_ClientHelloOuterContext(s, ch+4, written-4, session_id_len);
 }
@@ -258,9 +311,26 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
     return 1;
 }
 
+int sech2_save_ClientHello2(SSL_CONNECTION *s, WPACKET *pkt) {
+    int rv = 0;
+    size_t written;
+    if(!WPACKET_get_total_written(pkt, &written)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    unsigned char * ch = WPACKET_get_curr(pkt) - written;
+    OPENSSL_assert(ch);
+    OPENSSL_assert(written);
+    s->ext.sech_ClientHello2 = OPENSSL_memdup(ch, written);
+    s->ext.sech_ClientHello2_len = written;
+    rv = 1;
+    return rv;
+}
+
 int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
 {
     static size_t version_length = 2;
+    static size_t header_length = 4; // TODO include header
     unsigned char * ch = s->ext.sech_client_hello_transcript_for_confirmation;
     size_t len = s->ext.sech_client_hello_transcript_for_confirmation_len;
     OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation);
