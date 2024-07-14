@@ -56,7 +56,7 @@ end:
     EVP_CIPHER_free(cipher);
     return ret;
 }
-void sech_debug_buffer(char*msg, unsigned char*buf, size_t blen) {
+void sech_debug_buffer(char*msg, const unsigned char*buf, size_t blen) {
 // #ifdef SECH_DEBUG
     BIO_dump_fp(stderr, buf, blen);
     fprintf(stderr, "%s:\t", msg);
@@ -170,6 +170,8 @@ int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
         int len = OSSL_SECH2_INNER_RANDOM_LEN;
         memcpy(dst, src, len);
     }
+
+    sech_debug_buffer("sech key client:", key, key_len);
     
     if(1 != sech_helper_encrypt(
         NULL,                   // SSL * s,
@@ -208,8 +210,14 @@ int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
       memcpy(s->tmp_session_id, session_id, 32);
       BIO_dump_fp(stderr, ch, written);
       s->ext.sech_aead_tag.ready = 1;
-      s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch + 4, written - 4);
-      s->ext.sech_client_hello_transcript_for_confirmation_len = written - 4;
+      s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch, written);
+      s->ext.sech_client_hello_transcript_for_confirmation_len = written;
+      OPENSSL_assert((written >> 24) == 0); // assert length fits in uint24
+      unsigned char * length_field = s->ext.sech_client_hello_transcript_for_confirmation + 1;
+      size_t len = written - 4;
+      length_field[0] = (len >> 16) & 0xFF; // Most significant byte
+      length_field[1] = (len >> 8) & 0xFF;  // Middle byte
+      length_field[2] = len & 0xFF;         // Least significant byte55);
       OPENSSL_free(iv);
     }
     return 1;
@@ -225,7 +233,35 @@ int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
     unsigned char * ch = WPACKET_get_curr(pkt) - written;
     sech_debug_buffer("client hello as seen on client", ch, written);
     const size_t session_id_len = s->tmp_session_id_len;
-    return sech2_make_ClientHelloOuterContext(s, ch+4, written-4, session_id_len);
+    const size_t len = written - 4;
+    ch[1] = (len >> 16) & 0xFF;
+    ch[2] = (len >> 8) & 0xFF;
+    ch[3] = len & 0xFF;
+    return sech2_make_ClientHelloOuterContext(s, ch, written, session_id_len);
+}
+
+int sech2_make_ClientHello2_client(SSL_CONNECTION *s, WPACKET *pkt)
+{
+    size_t written;
+    if(!WPACKET_get_total_written(pkt, &written)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return CON_FUNC_ERROR;
+    }
+    unsigned char * ch = WPACKET_get_curr(pkt) - written;
+    sech_debug_buffer("client hello as seen on client", ch, written);
+    s->ext.sech_ClientHello2 = OPENSSL_memdup(ch, written);
+    if(!s->ext.sech_ClientHello2) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    fprintf(stderr, "ClientHello2 length on client: %i\n", written);
+    unsigned char * length_field = s->ext.sech_ClientHello2 + 1;
+    OPENSSL_assert((written >> 24) == 0);
+    length_field[0] = (written >> 16) & 0xFF; // Most significant byte
+    length_field[1] = (written >> 8) & 0xFF;  // Middle byte
+    length_field[2] = written & 0xFF;         // Least significant byte55);
+    s->ext.sech_ClientHello2_len = written;
+    return 1;
 }
 
 int sech2_derive_session_key(SSL_CONNECTION *s)
@@ -242,6 +278,11 @@ int sech2_derive_session_key(SSL_CONNECTION *s)
     hash_len = EVP_MD_size(md);
     unsigned char * tbuf = s->ext.sech_ClientHelloOuterContext;
     size_t tlen = s->ext.sech_ClientHelloOuterContext_len;
+    {
+        unsigned char msg[1024] = {0};
+        sprintf(msg, "ClientHelloOuterContext [server==%i]", s->server);
+        sech_debug_buffer(msg, s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
+    }
     fprintf(stderr, "ClientHelloOuterContext %i\n", s->server);
     BIO_dump_fp(stderr, tbuf, tlen);
     if ((ctx = EVP_MD_CTX_new()) == NULL
@@ -289,6 +330,7 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
     OPENSSL_assert(ch);
     OPENSSL_assert(ch_len);
     const size_t version_length = 2;
+    const size_t header_length = 4;
     s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(ch, ch_len);
 
     if(s->ext.sech_ClientHelloOuterContext == NULL)
@@ -296,14 +338,14 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
     s->ext.sech_ClientHelloOuterContext_len = ch_len; 
 
     {
-        void * random = s->ext.sech_ClientHelloOuterContext + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
+        void * random = s->ext.sech_ClientHelloOuterContext + header_length + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
         char val = 0;
         char len = SSL3_RANDOM_SIZE - OSSL_SECH2_AEAD_NONCE_LEN; 
         // replace sech cipher text and tag with 0s
         memset(random, val, len);
     }
     {
-        void * session_id_data_area = s->ext.sech_ClientHelloOuterContext + version_length + SSL3_RANDOM_SIZE + 1;
+        void * session_id_data_area = s->ext.sech_ClientHelloOuterContext + header_length + version_length + SSL3_RANDOM_SIZE + 1;
         char val = 0;
         // replace sech cipher text and tag with 0s
         memset(session_id_data_area, val, session_id_len);
@@ -330,7 +372,7 @@ int sech2_save_ClientHello2(SSL_CONNECTION *s, WPACKET *pkt) {
 int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
 {
     static size_t version_length = 2;
-    static size_t header_length = 4; // TODO include header
+    static size_t header_length = 4;
     unsigned char * ch = s->ext.sech_client_hello_transcript_for_confirmation;
     size_t len = s->ext.sech_client_hello_transcript_for_confirmation_len;
     OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation);
@@ -341,11 +383,11 @@ int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
 
     char cover1_len = SSL3_RANDOM_SIZE - OSSL_SECH2_AEAD_NONCE_LEN;
     {
-        void * cover1_start = s->ext.sech_ClientHelloInner + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
+        void * cover1_start = s->ext.sech_ClientHelloInner + header_length + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
         memcpy(cover1_start, s->ext.sech_plain_text.data, cover1_len);
     }
     {
-        void * cover2_start = s->ext.sech_ClientHelloInner + version_length + SSL3_RANDOM_SIZE + 1;
+        void * cover2_start = s->ext.sech_ClientHelloInner + header_length + version_length + SSL3_RANDOM_SIZE + 1;
         char cover2_len = (*(char*)(cover2_start - 1)) - 16;
         OPENSSL_assert(cover2_len == 16); // TODO not strictly necessary?
         memcpy(cover2_start, s->ext.sech_plain_text.data + cover1_len, cover2_len);

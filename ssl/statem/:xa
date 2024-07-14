@@ -1,0 +1,2 @@
+
+OPENSSL_assert(len <= 255); // TODO allow longer messages

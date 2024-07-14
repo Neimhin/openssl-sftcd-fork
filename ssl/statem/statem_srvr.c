@@ -1491,15 +1491,25 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 
         data = PACKET_data(pkt); // TODO error handling
         len = PACKET_remaining(pkt); // TODO error handling
-        dest = OPENSSL_malloc(len);
+        dest = OPENSSL_malloc(len + 4);
         sech_debug_buffer("client hello as seen on server", data, len);
         if(dest == NULL) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        s->ext.sech_client_hello_transcript_for_confirmation = dest;
-        s->ext.sech_client_hello_transcript_for_confirmation_len = len;
-        memcpy(dest, data, len);
+        memcpy(dest + 4, data, len);
+        OPENSSL_assert((len >> 24) == 0);
+        dest[0] = 1;
+        dest[1] = (len >> 16) & 0xFF;
+        dest[2] = (len >> 8) & 0xFF;
+        dest[3] = (len) & 0xFF;
+        if(!s->ext.sech_hrr) {
+            s->ext.sech_client_hello_transcript_for_confirmation = dest;
+            s->ext.sech_client_hello_transcript_for_confirmation_len = len + 4;
+        } else {
+            s->ext.sech_ClientHello2 = dest;
+            s->ext.sech_ClientHello2_len = len + 4;
+        }
     }
 
     /*
@@ -2794,9 +2804,14 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         {
             memcpy(s->ext.sech_hrr, shbuf+4, shlen-4); // TODO keep header
         }
-        shbuf[3] = shlen-4;
-        sech2_finish_mac(s, shbuf, shlen);
-        s->ext.sech_dgst_swap_ready = 1;
+        if(s->ext.sech_version == 2 && s->ext.sech_peer_inner_servername) {
+            shbuf[3] = shlen-4;
+            if(!sech2_finish_mac(s, shbuf, shlen)) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
+            s->ext.sech_dgst_swap_ready = 1;
+        }
     }
 
 #endif /* OPENSSL_NO_ECH */

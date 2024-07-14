@@ -1104,7 +1104,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         return 0;
     }
 
-    if(s->ext.sech_version == 2) {
+    if(s->ext.sech_version == 2 && s->ext.sech_hrr == NULL) {
         fprintf(stderr, "sech session id server:\n");
         BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
         if(!sech2_make_ClientHelloOuterContext_server(s)) {
@@ -1153,7 +1153,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             &plain_text_out_len,
             cipher_suite
             );
-        fprintf(stderr, "decryptrv: %i", decryptrv);
+        fprintf(stderr, "decryptrv: %i\n", decryptrv);
         if(plain_text_out_len != OSSL_SECH2_PLAIN_TEXT_LEN) { // COULDDO make this an assertion
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return 0;
@@ -1168,20 +1168,15 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
             s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, OSSL_SECH2_INNER_RANDOM_LEN);
             sech2_init_finished_mac(s);
-            char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len};
-            sech2_finish_mac(s, chheader, sizeof(chheader));
+            // char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len};
+            // sech2_finish_mac(s, chheader, sizeof(chheader));
             sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
-            // sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len);
-            // sech2_finish_mac(s, s->ext.
-            // sech2_swap_finish_mac(s);
-// #ifdef SECH_DEBUG
-//             {
-//                 size_t hhlen = 0;
-//                 char handshake_hash[EVP_MAX_MD_SIZE] = {0};
-//                 ssl_handshake_hash(s, handshake_hash, sizeof(handshake_hash), &hhlen);
-//                 sech_debug_buffer("server handshake hash after ClientHelloInner", handshake_hash, hhlen);
-//             }
-// #endif
+            if(s->ext.sech_hrr) {
+                sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len);
+                sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
+            }
+        } else {
+            fprintf(stderr, "sech decrypt failed\n");
         }
     }
 #endif

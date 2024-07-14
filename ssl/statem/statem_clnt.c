@@ -1240,19 +1240,23 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         {
         }
         else { // do SECH hello random (encrypted SNI in random)
-            if(s->ext.sech_version == 2 && s->ext.sech_hrr == NULL) {
-                sech2_make_ClientHelloOuterContext_client(s, pkt);
-                sech2_derive_session_key(s);
-                fprintf(stderr, "sech session key\n");
-                BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
-                sech2_edit_client_hello(s, pkt);
-                sech2_make_ClientHelloInner(s);
-                sech2_init_finished_mac(s);
-                char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len}; // TODO put header in ClientHelloInner
-                sech2_finish_mac(s, chheader, sizeof(chheader));
-                sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
-                sech_debug_buffer("ClientHelloOuter client", s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
-                sech_debug_buffer("ClientHelloInner client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+            if(s->ext.sech_version == 2) {
+                if(s->ext.sech_hrr == NULL) {
+                    sech2_make_ClientHelloOuterContext_client(s, pkt);
+                    sech2_derive_session_key(s);
+                    fprintf(stderr, "sech session key\n");
+                    BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
+                    sech2_edit_client_hello(s, pkt);
+                    sech2_make_ClientHelloInner(s);
+                    sech2_init_finished_mac(s);
+                    // char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len}; // TODO put header in ClientHelloInner
+                    // sech2_finish_mac(s, chheader, sizeof(chheader));
+                    sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+                    sech_debug_buffer("ClientHelloOuter client", s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
+                    sech_debug_buffer("ClientHelloInner client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+                } else { //save ClientHello2
+                    sech2_make_ClientHello2_client(s, pkt);
+                }
             }
         }
     #endif//OPENSSL_NO_ECH
@@ -2167,6 +2171,9 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
               goto err;
           }
           // sech2_swap_finish_mac(s);
+      }
+      else {
+          fprintf(stderr, "sech acceptance not found\n");
       }
     }
 #endif//OPENSSL_NO_ECH

@@ -3778,6 +3778,11 @@ int sech2_calc_confirm(
                 &shlen) != 1)
         goto err;
 
+    {
+        char msg[1024] = {0};
+        sprintf(msg, "accept transcript [server==%i]", s->server);
+        sech_debug_buffer(msg, tbuf, tlen);
+    }
     sech_transcript_hash_len = EVP_MD_size(md);
     if ((ctx = EVP_MD_CTX_new()) == NULL
         || EVP_DigestInit_ex(ctx, md, NULL) <= 0

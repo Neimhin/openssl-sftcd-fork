@@ -778,12 +778,12 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
 #ifdef SECH_DEBUG
         {
             char msg[1024] = {0};
-            sprintf(msg, "sech transcript full [server==%i]", s->server);
+            sprintf(msg, "handshake_traffic sech transcript full [server==%i]", s->server);
             sech_debug_buffer(msg, s->ext.sech_transcript_full, s->ext.sech_transcript_full_len);
         }
         {
             char msg[1024] = {0};
-            sprintf(msg, "normal transcript full [server==%i]", s->server);
+            sprintf(msg, "handshake_traffic normal transcript full [server==%i]", s->server);
             sech_debug_buffer(msg, s->ext.normal_transcript_full, s->ext.normal_transcript_full_len);
         }
 
