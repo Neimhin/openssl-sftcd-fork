@@ -1168,13 +1168,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
             s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, OSSL_SECH2_INNER_RANDOM_LEN);
             sech2_init_finished_mac(s);
-            // char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len};
-            // sech2_finish_mac(s, chheader, sizeof(chheader));
             sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
-            if(s->ext.sech_hrr) {
-                sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len);
-                sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
-            }
         } else {
             fprintf(stderr, "sech decrypt failed\n");
         }

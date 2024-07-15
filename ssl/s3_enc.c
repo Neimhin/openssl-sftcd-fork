@@ -359,6 +359,7 @@ int sech2_finish_mac(SSL_CONNECTION *s, const unsigned char *buf, size_t len)
     sprintf(msg, "updated full transcript [server==%i]", s->server);
     sech_debug_buffer(msg, s->ext.sech_transcript_full, s->ext.sech_transcript_full_len);
 #endif
+    OPENSSL_assert(s->ext.sech_handshake_dgst || s->ext.sech_handshake_buffer);
 
     if (s->ext.sech_handshake_dgst == NULL) {
         /* Note: this writes to a memory BIO so a failure is a fatal error */

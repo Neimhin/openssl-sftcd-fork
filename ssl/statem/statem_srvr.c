@@ -1509,6 +1509,8 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         } else {
             s->ext.sech_ClientHello2 = dest;
             s->ext.sech_ClientHello2_len = len + 4;
+            sech_debug_buffer("ClientHello2 server", s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
+            sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
         }
     }
 
@@ -2703,20 +2705,32 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         unsigned char * server_hello_buf = NULL;  // TODO: this code is unnecessarily duplicated for ECH
         size_t server_hello_buf_len = 0;
         unsigned char sech_acbuf[8] = {0};
+        unsigned char * shbuf;
+        EVP_MD * md;
 
         if (WPACKET_get_total_written(pkt, &server_hello_buf_len) != 1) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
         server_hello_buf = WPACKET_get_curr(pkt) - server_hello_buf_len;
-        unsigned char * shbuf = OPENSSL_malloc(server_hello_buf_len - 4);
+        shbuf = OPENSSL_malloc(server_hello_buf_len);
         if(!shbuf) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
-        memcpy(shbuf, server_hello_buf + 4, server_hello_buf_len - 4);
-        EVP_MD * md = (EVP_MD *)ssl_handshake_md(s);
-        if (sech2_calc_confirm(s, sech_acbuf, shbuf, server_hello_buf_len - 4, s->ext.sech_peer_inner_servername, md) != 1) {
+        {
+            size_t len = server_hello_buf_len - 4;
+            char header[4] = {
+                2,
+                (len >> 16) & 0xFF,
+                (len >> 8) & 0xFF,
+                (len) & 0xFF,
+            };
+            memcpy(shbuf, header, 4);
+            memcpy(shbuf + 4, server_hello_buf + 4, server_hello_buf_len - 4);
+        }
+        md = (EVP_MD *)ssl_handshake_md(s);
+        if (sech2_calc_confirm(s, sech_acbuf, shbuf, server_hello_buf_len, s->ext.sech_peer_inner_servername, md) != 1) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return CON_FUNC_ERROR;
         }
@@ -2794,18 +2808,34 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         shbuf = WPACKET_get_curr(pkt) - shlen;
-        s->ext.sech_hrr = OPENSSL_malloc(shlen-4);
-        s->ext.sech_hrr_len = shlen - 4;
-        if(s->ext.sech_hrr == NULL) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            return CON_FUNC_ERROR;
-        }
         if (s->hello_retry_request == SSL_HRR_PENDING) // keep hrr for sech_accept_confirmation transcript
         {
-            memcpy(s->ext.sech_hrr, shbuf+4, shlen-4); // TODO keep header
+            s->ext.sech_hrr = OPENSSL_malloc(shlen);
+            s->ext.sech_hrr_len = shlen;
+            if(s->ext.sech_hrr == NULL) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
+            {
+                size_t l = shlen - 4;
+                char header[4] = {
+                    2,
+                    (l >> 16) & 0xFF,
+                    (l >> 8) & 0xFF,
+                    (l >> 0) &  0xFF,
+                };
+                memcpy(s->ext.sech_hrr, header, 4);
+            }
+            memcpy(s->ext.sech_hrr + 4, shbuf+4, shlen-4); // TODO keep header
+            sech_debug_buffer("sech_hrr server", s->ext.sech_hrr, s->ext.sech_hrr_len);
         }
         if(s->ext.sech_version == 2 && s->ext.sech_peer_inner_servername) {
-            shbuf[3] = shlen-4;
+            {
+                size_t len = shlen - 4;
+                shbuf[1] = (len >> 16) & 0xFF;
+                shbuf[2] = (len >> 8) & 0xFF;
+                shbuf[3] = len & 0xFF;
+            } 
             if(!sech2_finish_mac(s, shbuf, shlen)) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;

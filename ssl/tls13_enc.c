@@ -555,7 +555,13 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
     int direction = (which & SSL3_CC_READ) != 0 ? OSSL_RECORD_DIRECTION_READ
                                                 : OSSL_RECORD_DIRECTION_WRITE;
 
-    if(s->ext.sech_dgst_swap_ready) {
+    if(!s->server) {
+        fprintf(stderr, "client swap finish mac?\n");
+    }
+    if(s->ext.sech_dgst_swap_ready &&
+            ((s->server && s->hello_retry_request != SSL_HRR_PENDING) ||
+            (!s->server /* TODO client logic */))) {
+        fprintf(stderr, "swapping finish mac [server==%i] [hrr==%i]\n", s->server, s->hello_retry_request);
 //         sech2_swap_finish_mac(s);
 // int sech2_swap_finish_mac(SSL_CONNECTION *s)
 // {
@@ -791,6 +797,9 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
         char * server = s->server ? "server" : "client";
         sprintf(msg, "handshake_traffic_hash %s (%lu)", server, hashlen);
         sech_debug_buffer(msg, hashval, hashlen);
+        memset(msg, 0, sizeof(msg));
+        sprintf(msg, "sech_hrr %s (%lu)", server, s->ext.sech_hrr_len);
+        sech_debug_buffer(msg, s->ext.sech_hrr, s->ext.sech_hrr_len);
 #endif
     }
 

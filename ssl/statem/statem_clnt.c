@@ -1249,13 +1249,22 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
                     sech2_edit_client_hello(s, pkt);
                     sech2_make_ClientHelloInner(s);
                     sech2_init_finished_mac(s);
-                    // char chheader[4] = {1, 0, 0, s->ext.sech_ClientHelloInner_len}; // TODO put header in ClientHelloInner
-                    // sech2_finish_mac(s, chheader, sizeof(chheader));
                     sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                     sech_debug_buffer("ClientHelloOuter client", s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
                     sech_debug_buffer("ClientHelloInner client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                 } else { //save ClientHello2
-                    sech2_make_ClientHello2_client(s, pkt);
+                    // sech2_make_ClientHello2_client(s, pkt);
+                    if( s->ext.sech_version == 2 &&
+                        s->ext.sech_hrr && (
+                        !sech2_make_ClientHello2_client(s, pkt) ||
+                        !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)
+                        )) {
+                        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                        return 0;
+                    }
+                    else {
+                        fprintf(stderr, "client ClientHello2 put in finish mac\n");
+                    }
                 }
             }
         }
@@ -1435,13 +1444,6 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         s->clienthello = NULL;
     }
 
-    if( s->ext.sech_version == 2 &&
-        s->ext.sech_hrr &&
-        !sech2_save_ClientHello2(s, pkt)
-        ) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return 0;
-    }
 
     return 1;
 err:
@@ -1838,12 +1840,21 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
 #ifndef OPENSSL_NO_ECH
         {
             // save hrr for sech_accept_confirmation signal
-            s->ext.sech_hrr = OPENSSL_memdup(shbuf, shlen); // TODO free
+            s->ext.sech_hrr = OPENSSL_malloc(shlen+4); // TODO free
+            s->ext.sech_hrr_len = shlen + 4;
             if(s->ext.sech_hrr == NULL) {
                 SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
                 goto err;
             }
-            s->ext.sech_hrr_len = shlen;
+            const char header[4] = {
+                2,
+                (shlen >> 16) & 0xFF,
+                (shlen >> 8)  & 0xFF,
+                (shlen >> 0)  & 0xFF
+            };
+            memcpy(s->ext.sech_hrr, header, 4);
+            memcpy(s->ext.sech_hrr + 4, shbuf, shlen);
+            sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len);
         }
 #endif//OPENSSL_NO_ECH
         if (!PACKET_forward(pkt, SSL3_RANDOM_SIZE)) {
@@ -1857,7 +1868,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         }
     }
 
-    if(s->ext.sech_version == 2)
+    if(s->ext.sech_version == 2 && !hrr)
     {
         char mt_header[4] = {2,0,0,shlen};
         sech2_finish_mac(s, mt_header, 4);
@@ -2137,11 +2148,23 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           return 0;
       }
       unsigned char acbuf[8];
+      unsigned char * shbufh = OPENSSL_malloc(shlen + 4);
+      size_t shbufhlen = shlen + 4;
+      {
+          char header[4] = {
+              2,
+              (shlen >> 16) & 0xFF,
+              (shlen >> 8) & 0xFF,
+              (shlen >> 0) & 0xFF,
+          };
+          memcpy(shbufh, header, 4);
+      }
+      memcpy(shbufh+4, shbuf, shlen);
       if(!sech2_calc_confirm(
             s,
             acbuf,
-            shbuf,
-            shlen,
+            shbufh,
+            shbufhlen,
             s->ext.sech_inner_servername, 
             md
         ))
@@ -2149,27 +2172,26 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
           goto err;
       }
+
+#ifdef SECH_DEBUG
+      {
+          char buf[16] = {0};
+          memcpy(buf, shbuf+2+SSL3_RANDOM_SIZE-8, 8);
+          memcpy(buf+8, acbuf, 8);
+          sech_debug_buffer("acbufs", buf, 16);
+      }
+#endif
+
       if(memcmp(shbuf + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
-          // sech2_swap_finish_mac(s);
-// #ifdef SECH_DEBUG
-//             {
-//                 size_t hhlen = 0;
-//                 char handshake_hash[EVP_MAX_MD_SIZE] = {0};
-//                 ssl_handshake_hash(s, handshake_hash, sizeof(handshake_hash), &hhlen);
-//                 sech_debug_buffer("client handshake hash after ClientHelloInner", handshake_hash, hhlen);
-//             }
-// #endif
-//           char header[4] = {2, 0, 0, shlen};
-//           sech2_finish_mac(s, header, 4);
-//           sech2_finish_mac(s, shbuf, shlen);
           s->ext.sech_dgst_swap_ready = 1;
           s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
-          if(s->ext.sech_hrr &&
-              !sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len) &&
-              !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)) {
-              SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
-              goto err;
-          }
+          sech_debug_buffer("client accepted", s->ext.sech_transcript_full, s->ext.sech_transcript_full_len);
+          // if(s->ext.sech_hrr &&
+          //     // !sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len) &&
+          //     !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)) {
+          //     SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
+          //     goto err;
+          // }
           // sech2_swap_finish_mac(s);
       }
       else {

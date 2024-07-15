@@ -84,14 +84,8 @@ void sech_debug_buffer(char*msg, const unsigned char*buf, size_t blen) {
         return;
     }
     base64_hash[13]=0;
-    fprintf(stderr, "%s\n", base64_hash);
+    fprintf(stderr, "(%i) %s\n", blen, base64_hash);
     BIO_dump_fp(stderr, buf, blen);
-    // for (int i = 0; i < blen; i++) {
-    //     if ((i != 0) && (i % 16 == 0))
-    //         fprintf(stderr, "\n    ");
-    //     fprintf(stderr, "%02x ", (unsigned)(buf[i]));
-    // }
-    // fprintf(stderr, "\n");
 // #endif//SECH_DEBUG
 }
 
@@ -248,7 +242,6 @@ int sech2_make_ClientHello2_client(SSL_CONNECTION *s, WPACKET *pkt)
         return CON_FUNC_ERROR;
     }
     unsigned char * ch = WPACKET_get_curr(pkt) - written;
-    sech_debug_buffer("client hello as seen on client", ch, written);
     s->ext.sech_ClientHello2 = OPENSSL_memdup(ch, written);
     if(!s->ext.sech_ClientHello2) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -256,12 +249,19 @@ int sech2_make_ClientHello2_client(SSL_CONNECTION *s, WPACKET *pkt)
     }
     fprintf(stderr, "ClientHello2 length on client: %i\n", written);
     unsigned char * length_field = s->ext.sech_ClientHello2 + 1;
-    OPENSSL_assert((written >> 24) == 0);
-    length_field[0] = (written >> 16) & 0xFF; // Most significant byte
-    length_field[1] = (written >> 8) & 0xFF;  // Middle byte
-    length_field[2] = written & 0xFF;         // Least significant byte55);
+    size_t len = written - 4;
+    OPENSSL_assert((len >> 24) == 0);
+    length_field[0] = (len >> 16) & 0xFF; // Most significant byte
+    length_field[1] = (len >> 8) & 0xFF;  // Middle byte
+    length_field[2] = len & 0xFF;         // Least significant byte55);
     s->ext.sech_ClientHello2_len = written;
+    sech_debug_buffer("ClientHello2", s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
     return 1;
+}
+
+int sech2_make_ClientHello2_server(SSL_CONNECTION *s, PACKET *pkt)
+{
+    return 0;
 }
 
 int sech2_derive_session_key(SSL_CONNECTION *s)
@@ -353,21 +353,21 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
     return 1;
 }
 
-int sech2_save_ClientHello2(SSL_CONNECTION *s, WPACKET *pkt) {
-    int rv = 0;
-    size_t written;
-    if(!WPACKET_get_total_written(pkt, &written)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        return rv;
-    }
-    unsigned char * ch = WPACKET_get_curr(pkt) - written;
-    OPENSSL_assert(ch);
-    OPENSSL_assert(written);
-    s->ext.sech_ClientHello2 = OPENSSL_memdup(ch, written);
-    s->ext.sech_ClientHello2_len = written;
-    rv = 1;
-    return rv;
-}
+// int sech2_save_ClientHello2(SSL_CONNECTION *s, WPACKET *pkt) {
+//     int rv = 0;
+//     size_t written;
+//     if(!WPACKET_get_total_written(pkt, &written)) {
+//         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+//         return rv;
+//     }
+//     unsigned char * ch = WPACKET_get_curr(pkt) - written;
+//     OPENSSL_assert(ch);
+//     OPENSSL_assert(written);
+//     s->ext.sech_ClientHello2 = OPENSSL_memdup(ch, written);
+//     s->ext.sech_ClientHello2_len = written;
+//     rv = 1;
+//     return rv;
+// }
 
 int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
 {

@@ -3512,29 +3512,39 @@ int sech2_make_transcript_buffer(SSL_CONNECTION *s,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
-
-    {
-        void * buf = s->ext.sech_client_hello_transcript_for_confirmation;
-        void * pkt = &tpkt;
-        void * inner_servername = s->ext.sech_plain_text.data;
-        void * inner_random = s->ext.sech_plain_text.data + 12;
-        if (
-               !WPACKET_memcpy(pkt, buf,  2 + 12) // version and sech_iv
-            || !WPACKET_memcpy(pkt, inner_servername, 12) // plain text servername 
-            || !WPACKET_memcpy(pkt, buf + 2 + 12 + 12, 8) // AEAD tag
-            || !WPACKET_memcpy(pkt, inner_random, OSSL_SECH2_INNER_RANDOM_LEN)
-            || !WPACKET_get_length(&tpkt, chend) // 
-           ) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
+    if(!WPACKET_memcpy(&tpkt, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
     }
+
+    // {
+    //     void * buf = s->ext.sech_client_hello_transcript_for_confirmation;
+    //     void * pkt = &tpkt;
+    //     void * inner_servername = s->ext.sech_plain_text.data;
+    //     void * inner_random = s->ext.sech_plain_text.data + 12;
+    //     if (
+    //            !WPACKET_memcpy(pkt, buf,  2 + 12) // version and sech_iv
+    //         || !WPACKET_memcpy(pkt, inner_servername, 12) // plain text servername 
+    //         || !WPACKET_memcpy(pkt, buf + 2 + 12 + 12, 8) // AEAD tag
+    //         || !WPACKET_memcpy(pkt, inner_random, OSSL_SECH2_INNER_RANDOM_LEN)
+    //         || !WPACKET_get_length(&tpkt, chend) // 
+    //        ) {
+    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+    //         goto err;
+    //     }
+    // }
     if(s->ext.sech_hrr != NULL) {
         if(!WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len)){
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
+        if(!WPACKET_memcpy(&tpkt, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)){
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
     }
+
+    sech_debug_buffer("fixedshbuf", fixedshbuf, *fixedshbuf_len);
     if (
            !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
         || !WPACKET_get_length(&tpkt, tlen)) {
@@ -3756,6 +3766,11 @@ int sech2_calc_confirm(
     unsigned char sech_iv[12];
     unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN];
 
+    {
+        char msg[1024] = {0};
+        sprintf(msg, "shbuf [server==%i]", s->server);
+        sech_debug_buffer(msg, shbuf, shlen);
+    }
     if(md == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
         goto err;
@@ -3767,7 +3782,7 @@ int sech2_calc_confirm(
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    memset(shbuf_zeroed + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
+    memset(shbuf_zeroed + 4 + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
     if (sech2_make_transcript_buffer(
                 s,
                 shbuf_zeroed,
