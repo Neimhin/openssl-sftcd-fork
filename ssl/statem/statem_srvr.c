@@ -1482,7 +1482,6 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 
 #ifndef OPENSSL_NO_ECH
 
-
     if(s->ext.sech_version == 2)
     {
         const unsigned char * data = NULL;

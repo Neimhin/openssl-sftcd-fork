@@ -409,7 +409,9 @@ static void ossl_rcu_free_local_data(void *arg)
     OSSL_LIB_CTX *ctx = arg;
     CRYPTO_THREAD_LOCAL *lkey = ossl_lib_ctx_get_rcukey(ctx);
     struct rcu_thr_data *data = CRYPTO_THREAD_get_local(lkey);
+
     OPENSSL_free(data);
+    CRYPTO_THREAD_set_local(lkey, NULL);
 }
 
 void ossl_rcu_read_lock(CRYPTO_RCU_LOCK *lock)
@@ -862,6 +864,58 @@ int CRYPTO_atomic_add(int *val, int amount, int *ret, CRYPTO_RWLOCK *lock)
         return 0;
 
     *val += amount;
+    *ret  = *val;
+
+    if (!CRYPTO_THREAD_unlock(lock))
+        return 0;
+
+    return 1;
+}
+
+int CRYPTO_atomic_add64(uint64_t *val, uint64_t op, uint64_t *ret,
+                        CRYPTO_RWLOCK *lock)
+{
+# if defined(__GNUC__) && defined(__ATOMIC_ACQ_REL) && !defined(BROKEN_CLANG_ATOMICS)
+    if (__atomic_is_lock_free(sizeof(*val), val)) {
+        *ret = __atomic_add_fetch(val, op, __ATOMIC_ACQ_REL);
+        return 1;
+    }
+# elif defined(__sun) && (defined(__SunOS_5_10) || defined(__SunOS_5_11))
+    /* This will work for all future Solaris versions. */
+    if (ret != NULL) {
+        *ret = atomic_add_64_nv(val, op);
+        return 1;
+    }
+# endif
+    if (lock == NULL || !CRYPTO_THREAD_write_lock(lock))
+        return 0;
+    *val += op;
+    *ret  = *val;
+
+    if (!CRYPTO_THREAD_unlock(lock))
+        return 0;
+
+    return 1;
+}
+
+int CRYPTO_atomic_and(uint64_t *val, uint64_t op, uint64_t *ret,
+                      CRYPTO_RWLOCK *lock)
+{
+# if defined(__GNUC__) && defined(__ATOMIC_ACQ_REL) && !defined(BROKEN_CLANG_ATOMICS)
+    if (__atomic_is_lock_free(sizeof(*val), val)) {
+        *ret = __atomic_and_fetch(val, op, __ATOMIC_ACQ_REL);
+        return 1;
+    }
+# elif defined(__sun) && (defined(__SunOS_5_10) || defined(__SunOS_5_11))
+    /* This will work for all future Solaris versions. */
+    if (ret != NULL) {
+        *ret = atomic_and_64_nv(val, op);
+        return 1;
+    }
+# endif
+    if (lock == NULL || !CRYPTO_THREAD_write_lock(lock))
+        return 0;
+    *val &= op;
     *ret  = *val;
 
     if (!CRYPTO_THREAD_unlock(lock))

@@ -35,6 +35,9 @@ for each on the TNS/X (L-Series) platform:
 
 The SPT threading model is no longer supported as of OpenSSL 3.2.
 
+The PUT model is incompatible with the QUIC capability. This capability should
+be disabled when building with PUT.
+
 ### TNS/E Considerations
 
 The TNS/E platform is build using the same set of builds specifying `nse`
@@ -214,13 +217,10 @@ Example Configure Targets
 -------------------------
 
 For OSS targets, the main DLL names will be `libssl.so` and `libcrypto.so`.
-For GUARDIAN targets, DLL names will be `ssl` and `crypto`. The following
-assumes that your PWD is set according to your installation standards.
+The following assumes that your PWD is set according to your installation
+standards.
 
     ./Configure nonstop-nsx           --prefix=${PWD} \
-        --openssldir=${PWD}/ssl no-threads \
-        --with-rand-seed=rdcpu ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
-    ./Configure nonstop-nsx_g         --prefix=${PWD} \
         --openssldir=${PWD}/ssl no-threads \
         --with-rand-seed=rdcpu ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
     ./Configure nonstop-nsx_put       --prefix=${PWD} \
@@ -231,9 +231,6 @@ assumes that your PWD is set according to your installation standards.
         --with-rand-seed=rdcpu ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
     ./Configure nonstop-nsx_64_put    --prefix=${PWD} \
         --openssldir=${PWD}/ssl threads "-D_REENTRANT" \
-        --with-rand-seed=rdcpu ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
-    ./Configure nonstop-nsx_g_tandem  --prefix=${PWD} \
-        --openssldir=${PWD}/ssl no-threads \
         --with-rand-seed=rdcpu ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
 
     ./Configure nonstop-nse           --prefix=${PWD} \
@@ -250,7 +247,4 @@ assumes that your PWD is set according to your installation standards.
         --with-rand-seed=egd ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
     ./Configure nonstop-nse_64_put    --prefix=${PWD} \
         --openssldir=${PWD}/ssl threads "-D_REENTRANT"
-        --with-rand-seed=egd ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}
-    ./Configure nonstop-nse_g_tandem  --prefix=${PWD} \
-        --openssldir=${PWD}/ssl no-threads \
         --with-rand-seed=egd ${CIPHENABLES} ${DBGFLAG} ${SYSTEMLIBS}

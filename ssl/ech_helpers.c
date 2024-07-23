@@ -343,5 +343,4 @@ end:
     EVP_CIPHER_free(cipher);
     return rv;
 }
-
 #endif

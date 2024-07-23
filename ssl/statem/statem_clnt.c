@@ -1441,8 +1441,6 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         OPENSSL_free(s->clienthello);
         s->clienthello = NULL;
     }
-
-
     return 1;
 err:
     WPACKET_cleanup(&inner);
@@ -1799,7 +1797,6 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
     SSL_COMP *comp;
 #endif
 #ifndef OPENSSL_NO_ECH
-
     const unsigned char *shbuf = NULL;
     size_t shlen, chend, fixedshbuf_len, alen;
     /* client and server accept signal buffers */
@@ -1811,8 +1808,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
         goto err;
     }
-
-#endif//OPENSSL_NO_ECH
+#endif
 
     if (!PACKET_get_net_2(pkt, &sversion)) {
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);

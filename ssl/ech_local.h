@@ -470,6 +470,7 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
 int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt);
 int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s);
 int sech2_derive_session_key(SSL_CONNECTION *s);
+int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);
 
 int ssl_sech2_calc_accept_confirmation_functional(
         SSL_CONNECTION * s,
@@ -669,5 +670,3 @@ void ech_ptranscript(const char *msg, SSL_CONNECTION *s);
 #  endif
 # endif
 #endif
-
-int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);

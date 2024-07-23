@@ -80,10 +80,13 @@
  */
 typedef struct ossl_ech_info_st {
     int index; /* externally re-usable reference to this value */
+    time_t seconds_in_memory; /* number of seconds since this was loaded */
     char *public_name; /* public_name from API or ECHConfig */
     char *inner_name; /* server-name (for inner CH if doing ECH) */
-    char *outer_alpns; /* outer ALPN string */
-    char *inner_alpns; /* inner ALPN string */
+    unsigned char *outer_alpns; /* outer ALPN string */
+    int outer_alpns_len;
+    unsigned char *inner_alpns; /* inner ALPN string */
+    int inner_alpns_len;
     char *echconfig; /* a JSON-like version of the associated ECHConfig */
 } OSSL_ECH_INFO;
 
@@ -133,6 +136,7 @@ int SSL_CTX_ech_set1_echconfig(SSL_CTX *ctx, const unsigned char *val,
 
 int SSL_ech_set_server_names(SSL *s, const char *inner_name,
                              const char *outer_name, int no_outer);
+
 int SSL_ech_set_outer_server_name(SSL *s, const char *outer_name, int no_outer);
 int SSL_ech_set_outer_alpn_protos(SSL *s, const unsigned char *protos,
                                   const size_t protos_len);
@@ -165,7 +169,7 @@ int SSL_CTX_ech_server_enable_buffer(SSL_CTX *ctx, const unsigned char *buf,
 int SSL_CTX_ech_server_enable_dir(SSL_CTX *ctx, int *loaded,
                                   const char *echdir, int for_retry);
 int SSL_CTX_ech_server_get_key_status(SSL_CTX *ctx, int *numkeys);
-int SSL_CTX_ech_server_flush_keys(SSL_CTX *ctx, unsigned int age);
+int SSL_CTX_ech_server_flush_keys(SSL_CTX *ctx, time_t age);
 
 int SSL_CTX_ech_raw_decrypt(SSL_CTX *ctx,
                             int *decrypted_ok,
@@ -180,9 +184,10 @@ int SSL_CTX_ech_set_pad_sizes(SSL_CTX *ctx, OSSL_ECH_PAD_SIZES *sizes);
 /* Misc API calls */
 int OSSL_ech_make_echconfig(unsigned char *echconfig, size_t *echconfiglen,
                             unsigned char *priv, size_t *privlen,
-                            uint16_t ekversion, uint16_t max_name_length,
+                            uint16_t echversion, uint16_t max_name_length,
                             const char *public_name, OSSL_HPKE_SUITE suite,
-                            const unsigned char *extvals, size_t extlen);
+                            const unsigned char *extvals, size_t extlen,
+                            OSSL_LIB_CTX *libctx, const char *propq);
 
 int OSSL_ech_find_echconfigs(int *num_echs,
                              unsigned char ***echconfigs, size_t **echlens,
