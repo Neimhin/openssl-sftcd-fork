@@ -40,6 +40,12 @@
 #   define CLIENT_VERSION_LEN 2
 #  endif
 
+#  define OSSL_SECH2_INNER_RANDOM_LEN 24
+#  define OSSL_SECH2_INNER_DATA_LEN 12
+#  define OSSL_SECH2_PLAIN_TEXT_LEN OSSL_SECH2_INNER_DATA_LEN + OSSL_SECH2_INNER_RANDOM_LEN
+#  define OSSL_SECH2_AEAD_NONCE_LEN 12
+#  define OSSL_SECH2_AEAD_TAG_LEN 16
+
 #  define OSSL_ECH_CIPHER_LEN 4 /* ECHCipher length (2 for kdf, 2 for aead) */
 
 /* values for s->ext.ech.grease */
@@ -410,6 +416,74 @@ int ech_same_key_share(void);
  *                        "ech accept confirmation",
  *                        ClientHelloInner...ServerHelloECHConf)
  */
+# define SECH2_ACCEPT_CONFIRMATION_OFFSET CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
+
+void sech_debug_buffer(char*msg, const unsigned char*buf, size_t blen);
+int sech_helper_encrypt(
+    SSL * s,
+    unsigned char * plain,
+    size_t plain_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char ** iv,
+    size_t * iv_len,
+    unsigned char ** cipher_text,
+    size_t * cipher_text_len,
+    unsigned char ** tag,
+    size_t * tag_len,
+    char * cipher_suite);
+int sech_helper_decrypt(
+    SSL * s,
+    unsigned char * cipher_text,
+    size_t cipher_text_len,
+    unsigned char * tag,
+    size_t tag_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char * iv,
+    size_t  iv_len,
+    unsigned char ** plain_text,
+    size_t * plain_text_len,
+    char * cipher_suite);
+int sech_calc_confirm_server(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen,
+        const char * inner_servername,
+        EVP_MD * md
+        )
+    ;
+int sech2_calc_confirm(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen,
+        const char * inner_servername,
+        EVP_MD * md
+        )
+    ;
+int sech2_make_ClientHello2_server(SSL_CONNECTION *s, PACKET *pkt);
+int sech2_save_ClientHello2_client(SSL_CONNECTION *s, WPACKET * pkt);
+int sech2_make_ClientHelloInner(SSL_CONNECTION *s);
+int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len);
+int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt);
+int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s);
+int sech2_derive_session_key(SSL_CONNECTION *s);
+int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);
+
+int ssl_sech2_calc_accept_confirmation_functional(
+        SSL_CONNECTION * s,
+        const unsigned char * sech_iv,
+        const unsigned char * sech_symmetric_key,
+        const size_t sech_symmetric_key_len,
+        const char * sech_decrypted_inner_servername,
+        const unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN],
+        const unsigned char * sech_transcript_hash,
+        const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
+        unsigned char * accept_confirmation_out)
+    ;
+
 int ech_calc_confirm(SSL_CONNECTION *s, int for_hrr, unsigned char *acbuf,
                      const unsigned char *shbuf, const size_t shlen);
 
@@ -565,6 +639,11 @@ int ech_copy_inner2outer(SSL_CONNECTION *s, uint16_t ext_type, WPACKET *pkt);
 int ech_get_retry_configs(SSL_CONNECTION *s, unsigned char **rcfgs,
                           size_t *rcfgslen);
 
+int sech2_make_transcript_buffer(SSL_CONNECTION *s,
+                               const unsigned char *shbuf, size_t shlen,
+                               unsigned char **tbuf, size_t *tlen,
+                               size_t *chend, size_t *fixedshbuf_len)
+    ;
 /*
  * @brief make up a buffer to use to reset transcript
  * @param s is the SSL connection

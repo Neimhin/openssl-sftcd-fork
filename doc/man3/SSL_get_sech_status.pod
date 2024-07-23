@@ -1,0 +1,299 @@
+=pod
+
+=head1 NAME
+
+SSL_ech_set1_echconfig,
+- stealthy Encrypted ClientHello (SECH) public interface functions
+
+=head1 SYNOPSIS
+
+ # include <openssl/ssl.h>
+ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len);
+ int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char * key, size_t key_len);
+ int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version);
+ int SSL_get_sech_status(SSL * s, char **inner_sni, char **outer_sni);
+=head1 DESCRIPTION
+
+TODO: description
+
+=head2 Setting SECH public values for clients
+
+=head2 Setting Server Name Indication (SNI) and ALPN values for clients
+
+=head2 Generating SECH key pairs and SECHconfigs
+
+=head2 Enabling ECH for servers
+
+=head2 ECH-specific Padding of server messages
+
+If a web server were to host a set of web sites, one of which had a much longer
+name than the others, the size of some TLS handshake server messages could
+expose which web site was being accessed. Similarly, if the TLS server
+certificate for one web site were significantly larger or smaller than others,
+message sizes could reveal which web site was being visited.  For these
+reasons, we provide a way to enable additional ECH-specific padding of the
+Certifiate, CertificateVerify and EncryptedExtensions messages sent from the
+server to the client during the handshake.
+
+To enable ECH-specific padding, one makes a call to
+``SSL_CTX_set_options(ctx, SSL_OP_ECH_SPECIFIC_PADDING)``
+
+The default padding scheme is to ensure the following sizes for the plaintext
+form of these messages:
+
+  | ------------------- | ------------ | ------------------- |
+  | Message             | Minimum Size | Size is multiple of |
+  | ------------------- | ------------ | ------------------- |
+  | Certificate         | 1792         | 128                 |
+  | CertificateVerify   | 304          | 16                  |
+  | EncryptedExtensions | 32           | 16                  |
+  | ------------------- | ------------ | ------------------- |
+
+The ciphertext form of these messages, as seen on the network in the record
+layer protocol, will usually be 16 octets more, due to the AEAD tag that is
+added as part of encryption.
+
+If a server wishes to have finer-grained control of these sizes, then it can
+make use of the ``SSL_CTX_ech_set_pad_sizes()`` or ``SSL_ech_set_pad_sizes()``
+APIs. Both involve populating an ``OSSL_ECH_PAD_SIZES`` data structure as
+described below in the obvious manner.
+
+  /*
+   * Fine-grained ECH-spacific padding controls for a server
+   */
+  typedef struct ossl_ech_pad_sizes_st {
+      size_t cert_min; /* minimum size */
+      size_t cert_unit; /* size will be multiple of */
+      size_t certver_min; /* minimum size */
+      size_t certver_unit; /* size will be multiple of */
+      size_t ee_min; /* minimum size */
+      size_t ee_unit; /* size will be multiple of */
+  } OSSL_ECH_PAD_SIZES;
+
+=head2 Accessing ECH information
+
+Given multiple ECH public values can be associated with a single I<SSL>
+session, client applications may need to be able to view and/or control which
+values will be used when a TLS session is created. We provide a way to
+view the current ECH public values associated with an I<SSL> session
+and a way to down-select to just one of those values, if desired.
+
+SSL_ech_get_info() returns an array of I<count> B<OSSL_ECH_INFO> structures.
+B<OSSL_ECH_INFO> is defined as:
+
+ typedef struct ossl_ech_info_st {
+     int index; /* externally re-usable reference to this value */
+     char *public_name; /* public_name from API or ECHConfig */
+     char *inner_name; /* server-name (for inner CH if doing ECH) */
+     char *outer_alpns; /* outer ALPN string */
+     char *inner_alpns; /* inner ALPN string */
+     char *echconfig; /* a JSON-like version of the associated ECHConfig */
+ } OSSL_ECH_INFO;
+
+OSSL_ECH_INFO_print() is a utility function to print an array of structures
+such as the above and OSSL_ECH_INFO_free() can be used to release associated
+memory.
+
+An example of the output from OSSL_ECH_INFO_print() is:
+
+ index: 0: SNI (inner:NULL;outer:NULL), ALPN (inner:NULL;outer:NULL)
+	 [fe0d,bb,example.com,0020,[0001,0001],62c7607bf2c5fe1108446f132ca4339cf19df1552e5a42960fd02c697360163c,00,00]
+
+If needed, the application can down-select to just one of these values before
+the TLS session is established by using the I<index> value for the value
+desired via the SSL_ech_reduce() function.
+
+Clients and servers can query the status of ECH for a TLS session using the
+SSL_ech_get_status() function. As SNI handling is core to ECH this will return
+the I<inner_sni> and I<outer_sni> values to be used or that were used as well
+as a status code as the return value. (These must be freed by the caller.)
+The various status values are as shown in L</Constants>.
+
+=head2 ECH SSL Options
+
+There are three SSL options associated with ECH that can be set via
+SSL_CTX_set_options():
+
+=over 4
+
+=item B<SSL_OP_ECH_GREASE> allows clients to enable GREASEing (see L</GREASEing>).
+
+=item B<SSL_OP_ECH_IGNORE_CID> sets the client to ignore the server-chosen ECH config ID and send a random value
+
+=item B<SSL_OP_ECH_TRIALDECRYPT> sets a server to attempt trial decryption with all loaded ECH keys
+
+=item B<SSL_OP_ECH_GREASE_RETRY_CONFIG> sets a server to include GREASEy ECHConfig values in retry_configs
+
+=back
+
+
+=head2 GREASEing
+
+Clients can choose to send a "fake" ECH extension value when not really attempting
+ECH in order to GREASE the protocol (see RFC8701). An ECH-supporting server that
+receives such a value should return a retry-config containing an ECHConfig value
+that could be used. (A client could then retry with a new SSL connection.)
+
+Setting the B<SSL_OP_ECH_GREASE> option turns on GREASEing, which is off by
+default. (GREASEing ECH may be turned on by default in some future version of
+OpenSSL.)
+
+SSL_ech_set_grease_suite() and SSL_ech_set_grease_type() allow clients to control
+additional details of GREASEing.
+
+SSL_ech_set_grease_suite() take a string form of HPKE suite in I<str>. See
+L<OSSL_HPKE_CTX_new(3)> for details of string encoding of HPKE suites. This allows
+clients to control the visible HPKE suite in the GREASEd ECH value which can
+be useful if some particular value provides reduces the ability of a network
+observer to fingerprint the client. The default is "25519,hkdf-sha256,aes128gcm"
+
+SSL_ech_get_grease_type() allows a client to use a different TLS extension
+type codepoint (rather than the current 0xfe0d value, which is the default).
+This allows clients to GREASE with future extension type codepoints if needed.
+
+Setting the B<SSL_OP_ECH_GREASE_RETRY_CONFIG> option causes a server to add
+GREASEy values to those returned in the retry-config. This is off by default.
+
+=head2 Callback Function
+
+Applications can set a callback function that will be called when the
+outcome from an attempt at ECH has been determined. On the server,
+that happens early, as part of construction of the ServerHello message.
+On the client, the callback will happen after the SeverHello has
+been processed. In the event of HelloRetryRequest, the callback will
+only be triggered when processing the second ServerHello. The callback
+function will be triggered even if the client is only GREASEing.
+
+The callback function prototype is:
+
+ typedef unsigned int (*SSL_ech_cb_func)(SSL *s, const char *str);
+
+To set a callback function use SSL_ech_set_callback() or
+SSL_CTX_ech_set_callback() - the I<f> input should match the
+above prototype.
+
+When the callback function is called, the I<str> will point at a string
+intended for logging describing the state of ECH processing.
+Applications should not attempt to parse that string as the value depends
+on compile time settings, local configuration and the specific processing
+that happened prior to the callback. Applications that need to branch based
+on the outcome of ECH processing should instead make a call to
+SSL_ech_get_status() from within their callback function.
+
+An example string I<str> as seen on a client might be:
+
+ ech_attempted=1
+ ech_attempted_type=0xfe0d
+ ech_atttempted_cid=0x5d
+ ech_done=1
+ ech_grease=0
+ ech_returned_len=0
+ ech_backend=0
+ ech_success=1
+ 2 ECHConfig values loaded
+ cfg(0): [fe0d,5d,cover.defo.ie,0020,[0001,0001],190984309c1a24cb944c005eb79d9c72ca9a4a979194b553dfd0bffc6b5c152d,00,00]
+ cfg(1): [fe0d,fd,cover.defo.ie,0020,[0001,0001],46dd4e2c81bb15ef9d194c99b86983844e2a1387e4fb7e7d3b8d368c8e1b4d2a,00,00]
+
+=head2 Constants
+
+Some externally visible limits:
+
+=over 4
+
+=item B<OSSL_ECH_MAX_PAYLOAD_LEN> 1500, max ECH ciphertext to en/decode
+
+=item B<OSSL_ECH_MIN_ECHCONFIG_LEN> 32, min for all encodings
+
+=item B<OSSL_ECH_MAX_ECHCONFIG_LEN> 1500, max for all encodings
+
+=item B<OSSL_ECH_MAX_ECHCONFIGEXT_LEN> 100, ECHConfig extension max
+
+=item B<OSSL_ECH_MAX_MAXNAMELEN> 255, ECHConfig max for max name length
+
+=item B<OSSL_ECH_MAX_PUBLICNAME> 255, max ECHConfig public name length
+
+=item B<OSSL_ECH_MAX_ALPN_LEN> 255, max alpn overall length
+
+=back
+
+ECH version - we only support draft-13 as of now.  As/if new versions
+are added, those will be noted here.
+This isn't directly used in APIs (but is present/checked-for in some
+encoded values), so is only made visible here as it has changed with
+each substantive revision of the draft specification (and will likely
+change at the last moment when an RFC is issued).
+
+=over 4
+
+=item B<OSSL_ECH_RFCXXXX_VERSION> 0xfe0d, version from ECH RFC XXXX
+
+=back
+
+Return codes from SSL_ech_get_status
+
+=over 4
+
+=item B<SSL_ECH_STATUS_BACKEND>    4, ECH backend: saw an ech_is_inner
+
+=item B<SSL_ECH_STATUS_GREASE_ECH> 3, GREASEd and got an ECH in return
+
+=item B<SSL_ECH_STATUS_GREASE>     2, ECH GREASE happened
+
+=item B<SSL_ECH_STATUS_SUCCESS>    1, Success
+
+=item B<SSL_ECH_STATUS_FAILED>     0, Some internal or protocol error
+
+=item B<SSL_ECH_STATUS_BAD_CALL>   -100, Some in/out arguments were NULL
+
+=item B<SSL_ECH_STATUS_NOT_TRIED>  -101, ECH wasn't attempted
+
+=item B<SSL_ECH_STATUS_BAD_NAME>   -102, ECH ok but server cert bad
+
+=item B<SSL_ECH_STATUS_NOT_CONFIGURED> -103, ECH wasn't configured
+
+=item B<SSL_ECH_STATUS_FAILED_ECH> -105, We tried, failed and got an ECH, from a verified name
+
+=item B<SSL_ECH_STATUS_FAILED_ECH_BAD_NAME> -106, We tried, failed and got an ECH, from a bad name
+
+=back
+
+Values for I<for_retry>
+
+=over 4
+
+=item B<SSL_ECH_USE_FOR_RETRY>  1. use corresponding ECHConfig values
+
+=item B<SSL_ECH_NOT_FOR_RETRY>  0. don't use corresponding ECHConfig values
+
+=back
+
+=head1 RETURN VALUES
+
+SSL_CTX_set_sech_inner_servername();
+SSL_CTX_set_sech_symmetric_key();
+SSL_CTX_set_sech_version();
+all return 1 for success and 0 in the case of failure.
+
+SSL_get_sech_status();
+returns B<OSSL_SECH_STATUS_SUCCESS> if SECH handshake succeeded (B<OSSL_SECH_STATUS_FAILURE> otherwise)
+For SECH.2 on server this means SECH AEAD decryption succeeded, for client this means the correct sech_accept_confirmation signal was observed in the ServerHello.random.
+
+=head1 SEE ALSO
+
+The Encrypted ClientHello specification: L<https://datatracker.ietf.org/doc/draft-ietf-tls-esni/>
+
+=head1 HISTORY
+
+This functionality described here was added in OpenSSL 3.2.
+
+=head1 COPYRIGHT
+
+Copyright 2023 The OpenSSL Project Authors. All Rights Reserved.
+
+Licensed under the Apache License 2.0 (the "License").  You may not use
+this file except in compliance with the License.  You can obtain a copy
+in the file LICENSE in the source distribution or at
+L<https://www.openssl.org/source/license.html>.
+
+=cut
+

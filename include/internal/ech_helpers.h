@@ -80,5 +80,32 @@ int ech_helper_make_enc_info(unsigned char *encoding, size_t encoding_length,
  * @return is the number of octets in |out| if successful, <=0 for failure
  */
 int ech_helper_base64_decode(char *in, size_t inlen, unsigned char **out);
+
+int sech_helper_encrypt(
+    SSL * s,
+    unsigned char * plain,
+    size_t plain_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char ** iv,
+    size_t * iv_len,
+    unsigned char ** cipher_text,
+    size_t * cipher_text_len,
+    unsigned char ** tag,
+    size_t * tag_len,
+    char * cipher_suite);
+int sech_helper_decrypt(
+    SSL * s,
+    unsigned char * cipher_text,
+    size_t cipher_text_len,
+    unsigned char * tag,
+    size_t tag_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char * iv,
+    size_t  iv_len,
+    unsigned char ** plain_text,
+    size_t * plain_text_len,
+    char * cipher_suite);
 # endif
 #endif

@@ -28,6 +28,29 @@
 #include "internal/ktls.h"
 #include "quic/quic_local.h"
 
+int debug_print_hrr(FILE *f, SSL_HRR_STATE state) {
+    char name[64];
+    print_hrr(state, name);
+    fprintf(f, "SSL_HRR_STATE: %s\n", name);
+    return 1;
+}
+
+int print_hrr(SSL_HRR_STATE hrr, char name[64])
+{
+    switch(hrr) {
+        case SSL_HRR_NONE:
+           memcpy(name, "SSL_HRR_NONE", sizeof("SSL_HRR_NONE"));
+           return 1;
+        case SSL_HRR_PENDING:
+           memcpy(name, "SSL_HRR_PENDING", sizeof("SSL_HRR_PENDING"));
+           return 1;
+        case SSL_HRR_COMPLETE:
+           memcpy(name, "SSL_HRR_COMPLETE", sizeof("SSL_HRR_COMPLETE"));
+           return 1;
+    }
+    return 0;
+}
+
 static int ssl_undefined_function_3(SSL_CONNECTION *sc, unsigned char *r,
                                     unsigned char *s, size_t t, size_t *u)
 {
@@ -913,6 +936,26 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
 
     s->ssl_pkey_num = SSL_PKEY_NUM + ctx->sigalg_list_len;
 #ifndef OPENSSL_NO_ECH
+    s->ext.sech_version = ctx->ext.sech_version;
+    s->ext.sech_peer_inner_servername = NULL;
+    s->ext.sech_hrr = NULL;
+    s->ext.sech_hrr_len = 0;
+    s->ext.sech_dgst_swap_ready = 0;
+    s->ext.sech_inner_random = NULL;
+    if(ctx->ext.sech_symmetric_key != NULL) {
+        unsigned char * ptr = ctx->ext.sech_symmetric_key;
+        size_t len = ctx->ext.sech_symmetric_key_len;
+        s->ext.sech_symmetric_key = OPENSSL_memdup(ptr, len);
+        if(s->ext.sech_symmetric_key == NULL) goto sslerr;
+        s->ext.sech_symmetric_key_len = len;
+    }
+    if(ctx->ext.sech_inner_servername != NULL) {
+        char * ptr = ctx->ext.sech_inner_servername;
+        s->ext.sech_inner_servername = OPENSSL_strdup(ptr);
+        if(s->ext.sech_inner_servername == NULL) goto sslerr;
+    }
+    s->ext.sech_plain_text.ready = 0;
+    s->ext.sech_session_key.ready = 0;
     s->ext.ech.attempted_type = TLSEXT_TYPE_ech;
     s->ext.ech.ncfgs = ctx->ext.nechs;
     if (s->ext.ech.ncfgs > 0) {
@@ -1577,6 +1620,27 @@ void ossl_ssl_connection_free(SSL *ssl)
         BIO_free(s->s3.handshake_buffer);
         s->s3.handshake_buffer = NULL;
     }
+    if (s->ext.sech_handshake_buffer != NULL) {
+        (void)BIO_set_close(s->ext.sech_handshake_buffer, BIO_CLOSE);
+        BIO_free(s->ext.sech_handshake_buffer);
+        s->ext.sech_handshake_buffer = NULL;
+    }
+
+    // SECH free
+    OPENSSL_free(s->ext.sech_symmetric_key);
+    s->ext.sech_symmetric_key = NULL;
+    OPENSSL_free(s->ext.sech_inner_servername);
+    s->ext.sech_inner_servername = NULL;
+    OPENSSL_free(s->ext.sech_peer_inner_servername);
+    s->ext.sech_peer_inner_servername = NULL;
+    OPENSSL_free(s->ext.sech_client_hello_transcript_for_confirmation);
+    s->ext.sech_client_hello_transcript_for_confirmation = NULL;
+    OPENSSL_free(s->ext.sech_inner_random);
+    s->ext.sech_inner_random = NULL;
+    OPENSSL_free(s->ext.sech_hrr);
+    s->ext.sech_hrr = NULL;
+    OPENSSL_free(s->ext.sech_cipher_text);
+    s->ext.sech_cipher_text = NULL;
 #endif
 }
 
@@ -3535,6 +3599,12 @@ const char *SSL_get_servername(const SSL *s, const int type)
     if (type != TLSEXT_NAMETYPE_host_name)
         return NULL;
 
+#ifndef OPENSSL_NO_ECH
+    if(sc->ext.sech_peer_inner_servername) {
+        return sc->ext.sech_peer_inner_servername;
+    }
+#endif//OPENSSL_NO_ECH
+
     if (server) {
         /**
          * Server side
@@ -3624,37 +3694,54 @@ int SSL_select_next_proto(unsigned char **out, unsigned char *outlen,
                           unsigned int server_len,
                           const unsigned char *client, unsigned int client_len)
 {
-    unsigned int i, j;
-    const unsigned char *result;
-    int status = OPENSSL_NPN_UNSUPPORTED;
+    PACKET cpkt, csubpkt, spkt, ssubpkt;
+
+    if (!PACKET_buf_init(&cpkt, client, client_len)
+            || !PACKET_get_length_prefixed_1(&cpkt, &csubpkt)
+            || PACKET_remaining(&csubpkt) == 0) {
+        *out = NULL;
+        *outlen = 0;
+        return OPENSSL_NPN_NO_OVERLAP;
+    }
+
+    /*
+     * Set the default opportunistic protocol. Will be overwritten if we find
+     * a match.
+     */
+    *out = (unsigned char *)PACKET_data(&csubpkt);
+    *outlen = (unsigned char)PACKET_remaining(&csubpkt);
 
     /*
      * For each protocol in server preference order, see if we support it.
      */
-    for (i = 0; i < server_len;) {
-        for (j = 0; j < client_len;) {
-            if (server[i] == client[j] &&
-                memcmp(&server[i + 1], &client[j + 1], server[i]) == 0) {
-                /* We found a match */
-                result = &server[i];
-                status = OPENSSL_NPN_NEGOTIATED;
-                goto found;
+    if (PACKET_buf_init(&spkt, server, server_len)) {
+        while (PACKET_get_length_prefixed_1(&spkt, &ssubpkt)) {
+            if (PACKET_remaining(&ssubpkt) == 0)
+                continue; /* Invalid - ignore it */
+            if (PACKET_buf_init(&cpkt, client, client_len)) {
+                while (PACKET_get_length_prefixed_1(&cpkt, &csubpkt)) {
+                    if (PACKET_equal(&csubpkt, PACKET_data(&ssubpkt),
+                                     PACKET_remaining(&ssubpkt))) {
+                        /* We found a match */
+                        *out = (unsigned char *)PACKET_data(&ssubpkt);
+                        *outlen = (unsigned char)PACKET_remaining(&ssubpkt);
+                        return OPENSSL_NPN_NEGOTIATED;
+                    }
+                }
+                /* Ignore spurious trailing bytes in the client list */
+            } else {
+                /* This should never happen */
+                return OPENSSL_NPN_NO_OVERLAP;
             }
-            j += client[j];
-            j++;
         }
-        i += server[i];
-        i++;
+        /* Ignore spurious trailing bytes in the server list */
     }
 
-    /* There's no overlap between our protocols and the server's list. */
-    result = client;
-    status = OPENSSL_NPN_NO_OVERLAP;
-
- found:
-    *out = (unsigned char *)result + 1;
-    *outlen = result[0];
-    return status;
+    /*
+     * There's no overlap between our protocols and the server's list. We use
+     * the default opportunistic protocol selected earlier
+     */
+    return OPENSSL_NPN_NO_OVERLAP;
 }
 
 #ifndef OPENSSL_NO_NEXTPROTONEG
@@ -4040,11 +4127,6 @@ SSL_CTX *SSL_CTX_new_ex(OSSL_LIB_CTX *libctx, const char *propq,
         goto err;
     }
 
-    if ((ret->ext.sech_inner_cert = ssl_cert_new(SSL_PKEY_NUM + ret->sigalg_list_len)) == NULL) {
-        ERR_raise(ERR_LIB_SSL, ERR_R_SSL_LIB);
-        goto err;
-    }
-
     if (!ssl_create_cipher_list(ret,
                                 ret->tls13_ciphersuites,
                                 &ret->cipher_list, &ret->cipher_list_by_id,
@@ -4330,6 +4412,9 @@ void SSL_CTX_free(SSL_CTX *a)
         a->ext.nechs = 0;
     }
     OPENSSL_free(a->ext.alpn_outer);
+    // SECH SECH_free
+    OPENSSL_free(a->ext.sech_inner_servername);
+    OPENSSL_free(a->ext.sech_symmetric_key);
 #endif
 
     CRYPTO_THREAD_lock_free(a->lock);
@@ -6593,7 +6678,7 @@ int ssl_validate_ct(SSL_CONNECTION *s)
  end:
     CT_POLICY_EVAL_CTX_free(ctx);
     /*
-     * With SSL_VERIFY_NONE the session may be cached and re-used despite a
+     * With SSL_VERIFY_NONE the session may be cached and reused despite a
      * failure return code here.  Also the application may wish the complete
      * the handshake, and then disconnect cleanly at a higher layer, after
      * checking the verification status of the completed connection.

@@ -676,7 +676,7 @@ static int basic_echconfig(int idx)
                                             NULL, NULL,
                                             ech_version, max_name_length,
                                             public_name, hpke_suite,
-                                            extvals, extlen)))
+                                            extvals, extlen, NULL, NULL)))
         goto err;
     echconfiglen = 80; /* too short */
     privlen = sizeof(priv);
@@ -684,7 +684,7 @@ static int basic_echconfig(int idx)
                                             priv, &privlen,
                                             ech_version, max_name_length,
                                             public_name, hpke_suite,
-                                            extvals, extlen)))
+                                            extvals, extlen, NULL, NULL)))
         goto err;
     echconfiglen = sizeof(echconfig);
     privlen = 10; /* too short */
@@ -692,7 +692,7 @@ static int basic_echconfig(int idx)
                                           priv, &privlen,
                                           ech_version, max_name_length,
                                           public_name, hpke_suite,
-                                          extvals, extlen)))
+                                          extvals, extlen, NULL, NULL)))
         goto err;
     echconfiglen = sizeof(echconfig);
     privlen = sizeof(priv);
@@ -702,7 +702,7 @@ static int basic_echconfig(int idx)
                                             priv, &privlen,
                                             ech_version, max_name_length,
                                             public_name, hpke_suite,
-                                            extvals, extlen)))
+                                            extvals, extlen, NULL, NULL)))
         goto err;
     echconfiglen = sizeof(echconfig);
     privlen = sizeof(priv);
@@ -712,14 +712,14 @@ static int basic_echconfig(int idx)
                                             priv, &privlen,
                                             0xbad, max_name_length,
                                             public_name, hpke_suite,
-                                            extvals, extlen)))
+                                            extvals, extlen, NULL, NULL)))
         goto err;
     /* bad max name length */
     if (!TEST_false(OSSL_ech_make_echconfig(echconfig, &echconfiglen,
                                             priv, &privlen,
                                             ech_version, 1024,
                                             public_name, hpke_suite,
-                                            extvals, extlen)))
+                                            extvals, extlen, NULL, NULL)))
         goto err;
     /* bad extensions */
     memset(badexts, 0xAA, sizeof(badexts));
@@ -727,7 +727,8 @@ static int basic_echconfig(int idx)
                                             priv, &privlen,
                                             ech_version, 1024,
                                             public_name, hpke_suite,
-                                            badexts, sizeof(badexts))))
+                                            badexts, sizeof(badexts),
+                                            NULL, NULL)))
         goto err;
     echconfiglen = sizeof(echconfig);
     privlen = sizeof(priv);
@@ -737,7 +738,7 @@ static int basic_echconfig(int idx)
                                            priv, &privlen,
                                            ech_version, max_name_length,
                                            public_name, hpke_suite,
-                                           extvals, extlen)))
+                                           extvals, extlen, NULL, NULL)))
         goto err;
     if (!TEST_ptr(ctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method())))
         goto err;
@@ -1231,7 +1232,7 @@ static int ech_tls12_with_ech_test(int idx)
     if (!TEST_true(OSSL_ech_make_echconfig(badconfig, &badconfiglen,
                                            badpriv, &badprivlen,
                                            ech_version, 0, public_name,
-                                           hpke_suite, NULL, 0)))
+                                           hpke_suite, NULL, 0, NULL, NULL)))
         goto end;
     if (!TEST_true(SSL_CTX_ech_server_enable_file(sctx, echkeyfile,
                                                   SSL_ECH_USE_FOR_RETRY)))
@@ -1335,7 +1336,7 @@ static int ech_wrong_pub_test(int idx)
     if (!TEST_true(OSSL_ech_make_echconfig(badconfig, &badconfiglen,
                                            badpriv, &badprivlen,
                                            ech_version, 0, public_name,
-                                           hpke_suite, NULL, 0)))
+                                           hpke_suite, NULL, 0, NULL, NULL)))
         goto end;
     if (!TEST_true(SSL_CTX_ech_set1_echconfig(cctx, badconfig,
                                               badconfiglen)))
@@ -1431,7 +1432,7 @@ static int tls_version_test(void)
     if (!TEST_true(OSSL_ech_make_echconfig(echconfig, &echconfiglen,
                                            priv, &privlen,
                                            ech_version, 0, "example.com",
-                                           hpke_suite, NULL, 0)))
+                                           hpke_suite, NULL, 0, NULL, NULL)))
         goto end;
     /* setup contexts, initially for tlsv1.3 */
     if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
@@ -1578,7 +1579,7 @@ static int test_ech_roundtrip_helper(int idx, int combo)
                                            priv, &privlen,
                                            ech_version, max_name_length,
                                            public_name, hpke_suite,
-                                           NULL, 0)))
+                                           NULL, 0, NULL, NULL)))
         goto end;
     if (!TEST_ptr(echconfig))
         goto end;
@@ -1811,7 +1812,7 @@ static int ech_grease_test(int idx)
                                            priv, &privlen,
                                            ech_version, max_name_length,
                                            public_name, hpke_suite,
-                                           NULL, 0)))
+                                           NULL, 0, NULL, NULL)))
         goto end;
     snprintf((char *)echkeybuf, echkeybuflen,
              "%s-----BEGIN ECHCONFIG-----\n%s\n-----END ECHCONFIG-----\n",

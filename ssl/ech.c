@@ -1678,40 +1678,6 @@ static int ECHConfigList_dup(ECHConfigList *old, ECHConfigList *new)
 }
 
 /*
- * @brief return a printable form of alpn
- * @param alpn is the buffer with alpns
- * @param len is the length of the above
- * @return buffer with string-form (caller has to free)
- *
- * ALPNs are multi-valued, with lengths between, we
- * map that to a comma-sep list
- */
-static char *alpn_print(unsigned char *alpn, size_t len)
-{
-    size_t ind = 0;
-    char *vstr = NULL;
-
-    if (alpn == NULL || len == 0)
-        return NULL;
-    if (len > OSSL_ECH_MAX_ALPNLEN)
-        return NULL;
-    vstr = OPENSSL_malloc(len + 1);
-    if (vstr == NULL)
-        return NULL;
-    while (ind < len) {
-        size_t vlen = alpn[ind];
-
-        if (ind + vlen > (len - 1))
-            return NULL;
-        memcpy(&vstr[ind], &alpn[ind + 1], vlen);
-        vstr[ind + vlen] = ',';
-        ind += (vlen + 1);
-    }
-    vstr[len - 1] = '\0';
-    return vstr;
-}
-
-/*
  * @brief produce a printable string-form of an ECHConfigList
  * @param out is where we print
  * @param c is the ECHConfigList
@@ -2745,7 +2711,7 @@ static int ech_hkdf_extract_wrap(SSL_CONNECTION *s, EVP_MD *md, int for_hrr,
     if (for_hrr == 1) {
         label = OSSL_ECH_HRR_CONFIRM_STRING;
     } else {
-        label = OSSL_ECH_ACCEPT_CONFIRM_STRING;
+        label = OSSL_ECH_ACCEPT_CONFIRM_STRING; // == "ech accept confirmation"
     }
     labellen = strlen(label);
 # ifdef OSSL_ECH_SUPERVERBOSE
@@ -3460,6 +3426,107 @@ int ech_reset_hs_buffer(SSL_CONNECTION *s, const unsigned char *buf,
     return 1;
 }
 
+int sech2_make_transcript_buffer(SSL_CONNECTION *s,
+        const unsigned char *shbuf,
+        size_t shlen,
+        unsigned char **tbuf,
+        size_t *tlen,
+        size_t *chend,
+        size_t *fixedshbuf_len) // TODO: better name for fixedshbuf_len
+{
+    unsigned char *fixedshbuf = NULL;
+    EVP_MD_CTX *ctx = NULL;
+    WPACKET tpkt, shpkt;
+    BUF_MEM *tpkt_mem = NULL, *shpkt_mem = NULL;
+
+    if ((shpkt_mem = BUF_MEM_new()) == NULL
+        || !BUF_MEM_grow(shpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
+        || !WPACKET_init(&shpkt, shpkt_mem)) {
+        BUF_MEM_free(shpkt_mem);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    if (!WPACKET_put_bytes_u8(&shpkt, SSL3_MT_SERVER_HELLO)
+        || !WPACKET_put_bytes_u24(&shpkt, shlen)
+        || !WPACKET_memcpy(&shpkt, shbuf, shlen)
+        || !WPACKET_get_length(&shpkt, fixedshbuf_len)) {
+        BUF_MEM_free(shpkt_mem);
+        WPACKET_cleanup(&shpkt);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    fixedshbuf = OPENSSL_malloc(*fixedshbuf_len);
+    if (fixedshbuf == NULL) {
+        BUF_MEM_free(shpkt_mem);
+        WPACKET_cleanup(&shpkt);
+        goto err;
+    }
+    memcpy(fixedshbuf, WPACKET_get_curr(&shpkt) - *fixedshbuf_len, // copy last *fixedshbuf_len bytes from shpkt to fixedshbuf
+           *fixedshbuf_len);
+    BUF_MEM_free(shpkt_mem);
+    WPACKET_cleanup(&shpkt);
+    if ((tpkt_mem = BUF_MEM_new()) == NULL
+        || !BUF_MEM_grow(tpkt_mem, SSL3_RT_MAX_PLAIN_LENGTH)
+        || !WPACKET_init(&tpkt, tpkt_mem)) {
+        BUF_MEM_free(tpkt_mem);
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    if(!WPACKET_memcpy(&tpkt, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    // {
+    //     void * buf = s->ext.sech_client_hello_transcript_for_confirmation;
+    //     void * pkt = &tpkt;
+    //     void * inner_servername = s->ext.sech_plain_text.data;
+    //     void * inner_random = s->ext.sech_plain_text.data + 12;
+    //     if (
+    //            !WPACKET_memcpy(pkt, buf,  2 + 12) // version and sech_iv
+    //         || !WPACKET_memcpy(pkt, inner_servername, 12) // plain text servername 
+    //         || !WPACKET_memcpy(pkt, buf + 2 + 12 + 12, 8) // AEAD tag
+    //         || !WPACKET_memcpy(pkt, inner_random, OSSL_SECH2_INNER_RANDOM_LEN)
+    //         || !WPACKET_get_length(&tpkt, chend) // 
+    //        ) {
+    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+    //         goto err;
+    //     }
+    // }
+    if(s->ext.sech_hrr != NULL) {
+        if(!WPACKET_memcpy(&tpkt, s->ext.sech_hrr, s->ext.sech_hrr_len)){
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
+        if(!WPACKET_memcpy(&tpkt, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)){
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
+    }
+
+    if (
+           !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
+        || !WPACKET_get_length(&tpkt, tlen)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    OPENSSL_free(fixedshbuf);
+    *tbuf = OPENSSL_malloc(*tlen);
+    if (*tbuf == NULL)
+        goto err;
+    memcpy(*tbuf, WPACKET_get_curr(&tpkt) - *tlen, *tlen);
+    WPACKET_cleanup(&tpkt);
+    BUF_MEM_free(tpkt_mem);
+    return 1;
+err:
+    if (s->ext.ech.kepthrr != fixedshbuf) /* don't double-free */
+        OPENSSL_free(fixedshbuf);
+    WPACKET_cleanup(&tpkt);
+    BUF_MEM_free(tpkt_mem);
+    EVP_MD_CTX_free(ctx);
+    return 0;
+}
+
 /*
  * @brief make up a buffer to use to reset transcript
  * @param s is the SSL connection
@@ -3613,6 +3680,229 @@ err:
 }
 
 /*
+ * SECH_accept_confirmation:
+ * 
+ * accept_confirmation = HKDF-Expand-Label(
+ *   HKDF-Extract(sech_symmetric_key, ClientHelloOuter.random),
+ *   "sech accept confirmation",
+ *   transcript_sech_conf,
+ *   8)
+ *
+ * transcript_sech_conf = ClientHelloOuter..ServerHello
+ *   with last octets 16-32 of ServerHello.random replaced with 0x0
+ *
+ *   octets 16-23 are for SECH_accept_confirmation (but these bytes will be random if not accepting SECH)
+ *   octets 24-32 are for ECH accept_confirmation (but these bytes will be random if not accepting ECH)
+ *
+ * TODO: If the server CAN accept SECH or ECH, then it should be left to the application program
+ * to decide which take precedence, or whether both should be accepted and allow client to decide which to procede with.
+ *
+ * Server may have a complicated precedence, e.g.:
+ * 1: SECH:   very-very-secret.com
+ * 2: ECH:    very-very-secret.com
+ * 3: SECH:   somewhat-secret.com
+ * 4: ECH:    somewhat-secret.com
+ * 5: TLS1.3: not-protected.com
+ * ... So we should implement a callback that allows the application program decide which protocol to accept, in the case of multiple options.
+ */
+int sech2_calc_confirm(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen,
+        const char * inner_servername,
+        EVP_MD * md
+        )
+{
+    int rv = 0;
+    EVP_MD_CTX *ctx = NULL;
+    unsigned char *tbuf = NULL;
+    size_t tlen = 0, chend = 0;
+    unsigned char * shbuf_zeroed = OPENSSL_malloc(shlen);
+    unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
+    unsigned int sech_transcript_hash_len = 0;
+    unsigned char sech_iv[12];
+    unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN];
+
+    {
+        char msg[1024] = {0};
+        sprintf(msg, "shbuf [server==%i]", s->server);
+    }
+    if(md == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
+        goto err;
+    }
+
+    if(!shbuf_zeroed) return 0;
+    memcpy(shbuf_zeroed, shbuf, shlen);
+    if(!(SECH2_ACCEPT_CONFIRMATION_OFFSET + 8 < shlen)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    memset(shbuf_zeroed + 4 + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
+    if (sech2_make_transcript_buffer(
+                s,
+                shbuf_zeroed,
+                shlen,
+                &tbuf,
+                &tlen,
+                &chend,
+                &shlen) != 1)
+        goto err;
+
+    {
+        char msg[1024] = {0};
+        sprintf(msg, "accept transcript [server==%i]", s->server);
+    }
+    sech_transcript_hash_len = EVP_MD_size(md);
+    if ((ctx = EVP_MD_CTX_new()) == NULL
+        || EVP_DigestInit_ex(ctx, md, NULL) <= 0
+        || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0
+        || EVP_DigestFinal_ex(ctx, sech_transcript_hash, &sech_transcript_hash_len) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    EVP_MD_CTX_free(ctx);
+    ctx = NULL;
+
+    memcpy(sech_iv, tbuf+2, 12);
+    if(!inner_servername) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    if(!s->ext.sech_inner_random) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    memcpy(inner_random, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
+    if(!ssl_sech2_calc_accept_confirmation_functional(
+        s,
+        sech_iv,
+        s->ext.sech_symmetric_key,
+        s->ext.sech_symmetric_key_len,
+        inner_servername,
+        inner_random,
+        sech_transcript_hash,
+        md, // which message digest algorithm to use (negotiated by server and client)
+        acbuf)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    rv = 1;
+err:
+    fprintf(stderr, "server? (%i)\n", s->server);
+    fprintf(stderr, "tbuf:");
+    BIO_dump_fp(stderr, tbuf, tlen);
+    fprintf(stderr, "transcript hash: %i\n", s->server);
+    BIO_dump_fp(stderr, sech_transcript_hash, 48);
+    fprintf(stderr, "acbuf: %i\n", s->server);
+    BIO_dump_fp(stderr, acbuf, 8);
+
+    EVP_MD_CTX_free(ctx);
+    OPENSSL_free(tbuf);
+    OPENSSL_free(shbuf_zeroed);
+    return rv;
+}
+
+/*
+    % md = TranscriptHash(ClientHello..ServerHello) // with last 16 bytes of ServerHello.random set to 0x00
+    % padded_sech_IV = pad(sech_IV, HashLen)
+    % sech_accept_confirmation = HKDF-Expand-Label(
+    %   HKDF-Extract(padded_sech_IV, sech_symmetric_key),
+    %   "sech ac" || 0x00 || sech_decrypted_inner_servername,
+    %   md,
+    %   8
+    % )
+*/
+int ssl_sech2_calc_accept_confirmation_functional(
+        SSL_CONNECTION * s,
+        const unsigned char * sech_iv,
+        const unsigned char * sech_symmetric_key,
+        const size_t sech_symmetric_key_len,
+        const char * sech_decrypted_inner_servername,
+        const unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN],
+        const unsigned char * sech_transcript_hash,
+        const EVP_MD * md, // which message digest algorithm to use (negotiated by server and client)
+        unsigned char * accept_confirmation_out)
+{
+    int rv = 1;
+    EVP_PKEY_CTX *pctx = NULL;
+    const size_t extract_key_len = sech_symmetric_key_len + OSSL_SECH2_INNER_RANDOM_LEN;
+    unsigned char * extract_key =  OPENSSL_malloc(extract_key_len);
+    unsigned char * extract_salt = NULL;
+    size_t extract_salt_len = EVP_MD_size(md);
+    unsigned char extracted_key[EVP_MAX_MD_SIZE];
+    size_t retlen = 0;
+    size_t hashlen = EVP_MD_size(md);
+
+
+    if(extract_key == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    memcpy(extract_key, sech_symmetric_key, sech_symmetric_key_len);
+    memcpy(extract_key + sech_symmetric_key_len, inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
+
+    extract_salt = OPENSSL_malloc(hashlen);
+    if(extract_salt == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    memcpy(extract_salt, sech_iv, 12);
+    memset(extract_salt + 12, 0, hashlen - 12);
+
+    char * label = OPENSSL_malloc(sizeof("sech ac") + strlen(sech_decrypted_inner_servername));
+    if(label == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return rv;
+    }
+    memcpy(label, "sech ac", sizeof("sech ac"));
+    memcpy(label + sizeof("sech ac"), sech_decrypted_inner_servername, strlen(sech_decrypted_inner_servername));
+
+    // extracted_key = HKDF-Extract(padded_sech_iv, sech_symmetric_key)
+    pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+    if (!pctx  ||
+        EVP_PKEY_derive_init(pctx) != 1 ||
+        EVP_PKEY_CTX_hkdf_mode(pctx, EVP_PKEY_HKDEF_MODE_EXTRACT_ONLY) != 1 ||
+        EVP_PKEY_CTX_set_hkdf_md(pctx, md) != 1 ||
+        EVP_PKEY_CTX_set1_hkdf_key(pctx, extract_key, extract_key_len) != 1 ||
+        EVP_PKEY_CTX_set1_hkdf_salt(pctx, extract_salt, extract_salt_len) != 1 ||
+        EVP_PKEY_derive(pctx, NULL, &retlen) != 1 ||
+        hashlen != retlen ||
+        EVP_PKEY_derive(pctx, extracted_key, &retlen) != 1 ||
+        0)
+    {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        rv = 0;
+        goto err;
+    }
+
+
+    // HKDF-Expand-Label(extracted_key, "sech accept confirmation", transcript_hash, 8); 
+    const unsigned char * expansion_label = (unsigned char *) "sech accept confirmation";
+    size_t labellen = sizeof("sech accept confirmation");
+    if (!tls13_hkdf_expand(
+                s,                                       // SSL_CONNECTION *s,                            
+                md,                                      // const EVP_MD *md,
+                extracted_key,                               // const unsigned char *secret,
+                expansion_label, labellen,  // const unsigned char *label, size_t labellen,
+                sech_transcript_hash, hashlen,                        // const unsigned char *data, size_t datalen,
+                accept_confirmation_out,                                   // unsigned char *out,
+                8,                                       // size_t outlen,
+                1                                        // int fatal
+                )) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        rv = 0;
+        goto err;
+    }
+err: 
+    EVP_PKEY_CTX_free(pctx);
+    return rv;
+}
+
+/*
+=======
+>>>>>>> ECH-draft-13c
  * @brief ECH accept_confirmation calculation
  * @param s is the SSL inner context
  * @oaram for_hrr is 1 if this is for an HRR, otherwise for SH
@@ -4686,13 +4976,15 @@ int OSSL_ECH_INFO_print(BIO *out, OSSL_ECH_INFO *se, int count)
     }
     BIO_printf(out, "ECH details (%d configs total)\n", count);
     for (i = 0; i != count; i++) {
-        BIO_printf(out, "index: %d: SNI (inner:%s;outer:%s), "
+        BIO_printf(out, "index: %d: loaded %lu seconds, SNI (inner:%s;outer:%s), "
                    "ALPN (inner:%s;outer:%s)\n\t%s\n",
-                   i,
+                   i, (unsigned long)se[i].seconds_in_memory,
                    se[i].inner_name != NULL ? se[i].inner_name : "NULL",
                    se[i].public_name != NULL ? se[i].public_name : "NULL",
-                   se[i].inner_alpns != NULL ? se[i].inner_alpns : "NULL",
-                   se[i].outer_alpns != NULL ? se[i].outer_alpns : "NULL",
+                   se[i].inner_alpns != NULL ?
+                        (char *)se[i].inner_alpns : "NULL",
+                   se[i].outer_alpns != NULL ?
+                        (char *)se[i].outer_alpns : "NULL",
                    se[i].echconfig != NULL ? se[i].echconfig : "NULL");
     }
     return 1;
@@ -4923,23 +5215,31 @@ int SSL_ech_get_info(SSL *ssl, OSSL_ECH_INFO **out, int *nindices)
         goto err;
     for (i = 0; i != s->ext.ech.ncfgs; i++) {
         OSSL_ECH_INFO *inst = &rdiff[i];
+        time_t now = time(0);
 
-        if (s->ext.ech.cfgs->inner_name != NULL) {
-            inst->inner_name = OPENSSL_strdup(s->ext.ech.cfgs->inner_name);
+        inst->seconds_in_memory = now - s->ext.ech.cfgs[i].loadtime;
+        if (s->ext.ech.cfgs[i].inner_name != NULL) {
+            inst->inner_name = OPENSSL_strdup(s->ext.ech.cfgs[i].inner_name);
             if (inst->inner_name == NULL)
                 goto err;
         }
-        if (s->ext.ech.cfgs->outer_name != NULL) {
-            inst->public_name = OPENSSL_strdup(s->ext.ech.cfgs->outer_name);
+        if (s->ext.ech.cfgs[i].outer_name != NULL) {
+            inst->public_name = OPENSSL_strdup(s->ext.ech.cfgs[i].outer_name);
             if (inst->public_name == NULL)
                 goto err;
         }
         if (s->ext.alpn != NULL) {
-            inst->inner_alpns = alpn_print(s->ext.alpn, s->ext.alpn_len);
+            inst->inner_alpns = OPENSSL_memdup(s->ext.alpn, s->ext.alpn_len);
+            inst->inner_alpns_len = s->ext.alpn_len;
+
+            // inst->inner_alpns = alpn_print(s->ext.alpn, s->ext.alpn_len);
         }
         if (s->ext.ech.alpn_outer != NULL) {
-            inst->outer_alpns = alpn_print(s->ext.ech.alpn_outer,
-                                           s->ext.ech.alpn_outer_len);
+            inst->outer_alpns = OPENSSL_memdup(s->ext.ech.alpn_outer,
+                                               s->ext.ech.alpn_outer_len);
+            inst->outer_alpns_len = s->ext.ech.alpn_outer_len;
+            // inst->outer_alpns = alpn_print(s->ext.ech.alpn_outer,
+                                           // s->ext.ech.alpn_outer_len);
         }
         /* Now "print" the ECHConfigList */
         if (s->ext.ech.cfgs[i].cfg != NULL) {
@@ -5021,7 +5321,7 @@ int SSL_CTX_ech_server_get_key_status(SSL_CTX *s, int *numkeys)
     return 1;
 }
 
-int SSL_CTX_ech_server_flush_keys(SSL_CTX *ctx, unsigned int age)
+int SSL_CTX_ech_server_flush_keys(SSL_CTX *ctx, time_t age)
 {
     time_t now = time(0);
     int i = 0;
@@ -5051,7 +5351,7 @@ int SSL_CTX_ech_server_flush_keys(SSL_CTX *ctx, unsigned int age)
     for (i = 0; i != ctx->ext.nechs; i++) {
         SSL_ECH *ep = &ctx->ext.ech[i];
 
-        if ((ep->loadtime + (time_t) age) <= now) {
+        if ((ep->loadtime + age) <= now) {
             SSL_ECH_free(ep);
             deleted++;
             continue;
@@ -5060,9 +5360,9 @@ int SSL_CTX_ech_server_flush_keys(SSL_CTX *ctx, unsigned int age)
     }
     ctx->ext.nechs -= deleted;
     OSSL_TRACE_BEGIN(TLS) {
-        BIO_printf(trc_out, "Flushed %d (of %d) ECH keys more than %u "
-                   "seconds old at %lu\n", deleted, orig, age,
-                   (long unsigned int)now);
+        BIO_printf(trc_out, "Flushed %d (of %d) ECH keys more than %lu "
+                   "seconds old at %lu\n", deleted, orig,
+                   (long unsigned int) age, (long unsigned int)now);
     } OSSL_TRACE_END(TLS);
     return 1;
 }
@@ -5726,9 +6026,10 @@ int SSL_ech_get_retry_config(SSL *ssl, unsigned char **ec, size_t *eclen)
 
 int OSSL_ech_make_echconfig(unsigned char *echconfig, size_t *echconfiglen,
                             unsigned char *priv, size_t *privlen,
-                            uint16_t ekversion, uint16_t max_name_length,
+                            uint16_t echversion, uint16_t max_name_length,
                             const char *public_name, OSSL_HPKE_SUITE suite,
-                            const unsigned char *extvals, size_t extlen)
+                            const unsigned char *extvals, size_t extlen,
+                            OSSL_LIB_CTX *libctx, const char *propq)
 {
     size_t pnlen = 0;
     size_t publen = OSSL_ECH_CRYPTO_VAR_SIZE;
@@ -5761,7 +6062,7 @@ int OSSL_ech_make_echconfig(unsigned char *echconfig, size_t *echconfiglen,
     }
 
     /* this used have more versions and will again in future */
-    switch (ekversion) {
+    switch (echversion) {
     case OSSL_ECH_RFCXXXX_VERSION:
         break;
     default:
@@ -5778,7 +6079,7 @@ int OSSL_ech_make_echconfig(unsigned char *echconfig, size_t *echconfiglen,
         goto err;
     }
 
-    if (OSSL_HPKE_keygen(suite, pub, &publen, &privp, NULL, 0, NULL, NULL)
+    if (OSSL_HPKE_keygen(suite, pub, &publen, &privp, NULL, 0, libctx, propq)
         != 1) {
         ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_INVALID_ARGUMENT);
         goto err;
@@ -5851,7 +6152,7 @@ int OSSL_ech_make_echconfig(unsigned char *echconfig, size_t *echconfiglen,
     if (!WPACKET_init(&epkt, epkt_mem)
         || (bp = WPACKET_get_curr(&epkt)) == NULL
         || !WPACKET_start_sub_packet_u16(&epkt)
-        || !WPACKET_put_bytes_u16(&epkt, ekversion)
+        || !WPACKET_put_bytes_u16(&epkt, echversion)
         || !WPACKET_start_sub_packet_u16(&epkt)
         || !WPACKET_put_bytes_u8(&epkt, config_id)
         || !WPACKET_put_bytes_u16(&epkt, suite.kem_id)
@@ -5962,102 +6263,6 @@ err:
     SSL_ECH_free_arr(new_echs, num_new);
     OPENSSL_free(new_echs);
     return rv;
-}
-
-int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len)
-{
-    if (key == NULL) return 0;
-    if (ctx == NULL) return 0;
-    ctx->ext.sech_symmetric_key = OPENSSL_malloc(key_len);
-    if(ctx->ext.sech_symmetric_key == NULL) return 0;
-    ctx->ext.sech_symmetric_key_len = key_len;
-    for(int i = 0; i < key_len; ++i) ctx->ext.sech_symmetric_key[i] = key[i];
-    return 1;
-}
-
-int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version)
-{
-  switch(version)
-  {
-    case 2:
-        ctx->ext.sech_version = version;
-        return 1;
-    default:
-        return 0;
-  }
-}
-
-int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len)
-{
-    if(inner_servername_len == 0 && inner_servername != NULL) {
-      inner_servername_len = strlen(inner_servername);
-    }
-    ctx->ext.sech_inner_servername_len = inner_servername_len;
-    ctx->ext.sech_inner_servername = inner_servername;
-    return 1;
-}
-
-int SSL_CTX_set_sech_inner_cert_and_key_files(SSL_CTX *ctx, char* cert_filename, char*key_filename)
-{
-    // TODO not yet implemented
-    return 0;
-}
-
-static int ssl_set_cert(CERT *c, X509 *x509, SSL_CTX *ctx);
-static int ssl_set_cert(CERT *c, X509 *x, SSL_CTX *ctx)
-{
-    EVP_PKEY *pkey;
-    size_t i;
-
-    pkey = X509_get0_pubkey(x);
-    if (pkey == NULL) {
-        ERR_raise(ERR_LIB_SSL, SSL_R_X509_LIB);
-        return 0;
-    }
-
-    if (ssl_cert_lookup_by_pkey(pkey, &i, ctx) == NULL) {
-        ERR_raise(ERR_LIB_SSL, SSL_R_UNKNOWN_CERTIFICATE_TYPE);
-        return 0;
-    }
-
-    if (i == SSL_PKEY_ECC && !EVP_PKEY_can_sign(pkey)) {
-        ERR_raise(ERR_LIB_SSL, SSL_R_ECC_CERT_NOT_FOR_SIGNING);
-        return 0;
-    }
-
-    if (c->pkeys[i].privatekey != NULL) {
-        /*
-         * The return code from EVP_PKEY_copy_parameters is deliberately
-         * ignored. Some EVP_PKEY types cannot do this.
-         * coverity[check_return]
-         */
-        EVP_PKEY_copy_parameters(pkey, c->pkeys[i].privatekey);
-        ERR_clear_error();
-
-        if (!X509_check_private_key(x, c->pkeys[i].privatekey)) {
-            /*
-             * don't fail for a cert/key mismatch, just free current private
-             * key (when switching to a different cert & key, first this
-             * function should be used, then ssl_set_pkey
-             */
-            EVP_PKEY_free(c->pkeys[i].privatekey);
-            c->pkeys[i].privatekey = NULL;
-            /* clear error queue */
-            ERR_clear_error();
-        }
-    }
-
-    X509_free(c->pkeys[i].x509);
-    X509_up_ref(x);
-    c->pkeys[i].x509 = x;
-    c->key = &(c->pkeys[i]);
-
-    return 1;
-}
-
-int SSL_get_sech_status(SSL * s) {
-    // TODO not yet implemented
-    return SSL_SECH_STATUS_FAILED;
 }
 
 #endif

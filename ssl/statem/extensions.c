@@ -16,6 +16,7 @@
 #include "internal/nelem.h"
 #include "internal/cryptlib.h"
 #include "../ssl_local.h"
+#include "internal/ech_helpers.h"
 #include "statem_local.h"
 
 static int final_renegotiate(SSL_CONNECTION *s, unsigned int context, int sent);
@@ -1103,6 +1104,76 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         return 0;
     }
 
+    if(s->ext.sech_version == 2 && s->ext.sech_hrr == NULL) {
+        fprintf(stderr, "sech session id server:\n");
+        BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
+        if(!sech2_make_ClientHelloOuterContext_server(s)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return 0;
+        }
+        sech2_derive_session_key(s);
+        fprintf(stderr, "sech session key server:\n");
+        BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));
+    }
+
+#ifndef OPENSSL_NO_ECH
+    if(s->server
+            && s->ext.sech_version == 2
+            && s->ext.sech_peer_inner_servername == NULL
+      )
+    {
+        unsigned char * iv = s->s3.client_random;
+        size_t iv_len = 12;
+        size_t cipher_text_len = 12 + OSSL_SECH2_INNER_RANDOM_LEN;
+        unsigned char * cipher_text = OPENSSL_malloc(cipher_text_len);
+        memcpy(cipher_text, s->s3.client_random + 12, SSL3_RANDOM_SIZE - 12);
+        memcpy(cipher_text + SSL3_RANDOM_SIZE - 12, s->clienthello->session_id, 16);
+
+        unsigned char * tag = s->clienthello->session_id + 16;
+        size_t tag_len = 16;
+        unsigned char * plain_text_out = NULL;
+        size_t plain_text_out_len = 0;
+        char * cipher_suite = NULL;
+        unsigned char * key = s->ext.sech_session_key.data;
+        size_t key_len = sizeof(s->ext.sech_session_key.data);
+        fprintf(stderr, "session key: [%lu]\n", key_len);
+        BIO_dump_fp(stderr, key, key_len);
+
+        int decryptrv = sech_helper_decrypt(
+            NULL,
+            (unsigned char *) cipher_text,
+            cipher_text_len,
+            tag,
+            tag_len,
+            key,
+            key_len,
+            iv,
+            iv_len,
+            &plain_text_out,
+            &plain_text_out_len,
+            cipher_suite
+            );
+        fprintf(stderr, "decryptrv: %i\n", decryptrv);
+        if(plain_text_out_len != OSSL_SECH2_PLAIN_TEXT_LEN) { // COULDDO make this an assertion
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return 0;
+        }
+        else if(decryptrv) {
+            memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
+            sech2_make_ClientHelloInner(s);
+            s->ext.sech_plain_text.ready = 1;
+            unsigned char inner_servername[OSSL_SECH2_INNER_DATA_LEN + 1] = {0};
+            memcpy(inner_servername, plain_text_out, OSSL_SECH2_INNER_DATA_LEN);
+            s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
+            s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, OSSL_SECH2_INNER_RANDOM_LEN);
+            sech2_init_finished_mac(s);
+            sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+        } else {
+            fprintf(stderr, "sech decrypt failed\n");
+        }
+    }
+#endif
+
     if (sctx->ext.servername_cb != NULL)
         ret = sctx->ext.servername_cb(ssl, &altmp,
                                       sctx->ext.servername_arg);
@@ -1895,15 +1966,9 @@ static int final_early_data(SSL_CONNECTION *s, unsigned int context, int sent)
 static int final_maxfragmentlen(SSL_CONNECTION *s, unsigned int context,
                                 int sent)
 {
-    /*
-     * Session resumption on server-side with MFL extension active
-     *  BUT MFL extension packet was not resent (i.e. sent == 0)
-     */
-    if (s->server && s->hit && USE_MAX_FRAGMENT_LENGTH_EXT(s->session)
-            && !sent ) {
-        SSLfatal(s, SSL_AD_MISSING_EXTENSION, SSL_R_BAD_EXTENSION);
-        return 0;
-    }
+    /* MaxFragmentLength defaults to disabled */
+    if (s->session->ext.max_fragment_len_mode == TLSEXT_max_fragment_length_UNSPECIFIED)
+        s->session->ext.max_fragment_len_mode = TLSEXT_max_fragment_length_DISABLED;
 
     if (s->session && USE_MAX_FRAGMENT_LENGTH_EXT(s->session)) {
         s->rlayer.rrlmethod->set_max_frag_len(s->rlayer.rrl,

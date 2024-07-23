@@ -161,6 +161,9 @@ void ossl_statem_send_fatal(SSL_CONNECTION *s, int al)
 void ossl_statem_fatal(SSL_CONNECTION *s, int al, int reason,
                        const char *fmt, ...)
 {
+#ifdef SECH_DEBUG
+    fprintf(stderr, "fatal [server==%i]\n", s->server);
+#endif
     va_list args;
 
     va_start(args, fmt);

@@ -1472,12 +1472,44 @@ static void ssl_check_for_safari(SSL_CONNECTION *s,
 
 MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 {
+#ifdef SECH_DEBUG
+    fprintf(stderr, "process client hello\n");
+#endif
     /* |cookie| will only be initialized for DTLS. */
     PACKET session_id, compression, extensions, cookie;
     static const unsigned char null_compression = 0;
     CLIENTHELLO_MSG *clienthello = NULL;
 
 #ifndef OPENSSL_NO_ECH
+
+    if(s->ext.sech_version == 2)
+    {
+        const unsigned char * data = NULL;
+        size_t len = 0;
+        unsigned char * dest = NULL;
+
+        data = PACKET_data(pkt); // TODO error handling
+        len = PACKET_remaining(pkt); // TODO error handling
+        dest = OPENSSL_malloc(len + 4);
+        if(dest == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
+        memcpy(dest + 4, data, len);
+        OPENSSL_assert((len >> 24) == 0);
+        dest[0] = 1;
+        dest[1] = (len >> 16) & 0xFF;
+        dest[2] = (len >> 8) & 0xFF;
+        dest[3] = (len) & 0xFF;
+        if(!s->ext.sech_hrr) {
+            s->ext.sech_client_hello_transcript_for_confirmation = dest;
+            s->ext.sech_client_hello_transcript_for_confirmation_len = len + 4;
+        } else {
+            s->ext.sech_ClientHello2 = dest;
+            s->ext.sech_ClientHello2_len = len + 4;
+        }
+    }
+
     /*
      * For split-mode we want to have a way to point at the CH octets
      * for the accept-confirmation calculation.
@@ -1735,6 +1767,7 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         }
     }
 
+
     if (!PACKET_copy_all(&compression, clienthello->compressions,
                          MAX_COMPRESSIONS_SIZE,
                          &clienthello->compressions_len)) {
@@ -1785,6 +1818,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
     DOWNGRADE dgrd = DOWNGRADE_NONE;
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
     SSL *ssl = SSL_CONNECTION_GET_SSL(s);
+
 
     /* Finished parsing the ClientHello, now we can start processing it */
     /* Give the ClientHello callback a crack at things */
@@ -2035,19 +2069,20 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         goto err;
     }
 
+
+
     /*
      * Check if we want to use external pre-shared secret for this handshake
      * for not reused session only. We need to generate server_random before
      * calling tls_session_secret_cb in order to allow SessionTicket
      * processing to use it in key derivation.
      */
-    {
-        unsigned char *pos;
-        pos = s->s3.server_random;
-        if (ssl_fill_hello_random(s, 1, pos, SSL3_RANDOM_SIZE, dgrd) <= 0) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
+
+    unsigned char *pos;
+    pos = s->s3.server_random;
+    if (ssl_fill_hello_random(s, 1, pos, SSL3_RANDOM_SIZE, dgrd) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
     }
 
     if (!s->hit && !tls1_set_server_sigalgs(s)) {
@@ -2651,11 +2686,57 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     }
 
 #ifndef OPENSSL_NO_ECH
+    /* 
+     * Calculate the SECH-accept server random.
+     */
+    int sech2_accepted = s->ext.sech_version == 2 &&
+        (s->ext.sech_peer_inner_servername != NULL) &&
+        (strlen(s->ext.sech_peer_inner_servername) > 0) &&
+        (s->hello_retry_request == SSL_HRR_COMPLETE || s->hello_retry_request == SSL_HRR_NONE);
+    if(sech2_accepted)
+    {
+        unsigned char * server_hello_buf = NULL;  // TODO: this code is unnecessarily duplicated for ECH
+        size_t server_hello_buf_len = 0;
+        unsigned char sech_acbuf[8] = {0};
+        unsigned char * shbuf;
+        EVP_MD * md;
+
+        if (WPACKET_get_total_written(pkt, &server_hello_buf_len) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        server_hello_buf = WPACKET_get_curr(pkt) - server_hello_buf_len;
+        shbuf = OPENSSL_malloc(server_hello_buf_len);
+        if(!shbuf) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        {
+            size_t len = server_hello_buf_len - 4;
+            char header[4] = {
+                2,
+                (len >> 16) & 0xFF,
+                (len >> 8) & 0xFF,
+                (len) & 0xFF,
+            };
+            memcpy(shbuf, header, 4);
+            memcpy(shbuf + 4, server_hello_buf + 4, server_hello_buf_len - 4);
+        }
+        md = (EVP_MD *)ssl_handshake_md(s);
+        if (sech2_calc_confirm(s, sech_acbuf, shbuf, server_hello_buf_len, s->ext.sech_peer_inner_servername, md) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        OPENSSL_free(shbuf);
+        memcpy(server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET + 4, sech_acbuf, 8);
+    }
     /*
      * Calculate the ECH-accept server random to indicate that
      * we're accepting ECH, if that's the case
      */
-    if (s->ext.ech.attempted_type == TLSEXT_TYPE_ech
+    if (
+            !sech2_accepted &&
+            s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
         && (s->ext.ech.backend == 1
             || (s->ext.ech.cfgs != NULL && s->ext.ech.success == 1))) {
         unsigned char acbuf[8];
@@ -2712,6 +2793,57 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
     }
+    {
+        unsigned char *shbuf = NULL;
+        size_t shlen = 0;
+        if (WPACKET_get_total_written(pkt, &shlen) != 1) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return CON_FUNC_ERROR;
+        }
+        shbuf = WPACKET_get_curr(pkt) - shlen;
+        if (s->hello_retry_request == SSL_HRR_PENDING) // keep hrr for sech_accept_confirmation transcript
+        {
+            s->ext.sech_hrr = OPENSSL_malloc(shlen);
+            s->ext.sech_hrr_len = shlen;
+            if(s->ext.sech_hrr == NULL) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
+            {
+                size_t l = shlen - 4;
+                char header[4] = {
+                    2,
+                    (l >> 16) & 0xFF,
+                    (l >> 8) & 0xFF,
+                    (l >> 0) &  0xFF,
+                };
+                memcpy(s->ext.sech_hrr, header, 4);
+            }
+            memcpy(s->ext.sech_hrr + 4, shbuf+4, shlen-4); // TODO keep header
+        }
+        if(s->ext.sech_version == 2 && s->ext.sech_peer_inner_servername) {
+
+            if(s->ext.sech_ClientHello2 && 
+                !sech2_finish_mac(s,
+                    s->ext.sech_ClientHello2,
+                    s->ext.sech_ClientHello2_len)) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
+            {
+                size_t len = shlen - 4;
+                shbuf[1] = (len >> 16) & 0xFF;
+                shbuf[2] = (len >> 8) & 0xFF;
+                shbuf[3] = len & 0xFF;
+            } 
+            if(!sech2_finish_mac(s, shbuf, shlen)) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
+            s->ext.sech_dgst_swap_ready = 1;
+        }
+    }
+
 #endif /* OPENSSL_NO_ECH */
     return CON_FUNC_SUCCESS;
 }

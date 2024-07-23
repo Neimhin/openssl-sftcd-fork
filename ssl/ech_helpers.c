@@ -12,6 +12,7 @@
  */
 
 #include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <internal/ech_helpers.h>
 #include <internal/packet.h>
 
@@ -293,5 +294,53 @@ err:
     OPENSSL_free(outbuf);
     *out = NULL;
     return 0;
+}
+
+#define SECH_VERBOSE 1
+
+
+int sech_helper_decrypt(
+    SSL * s,
+    unsigned char * cipher_text,
+    size_t cipher_text_len,
+    unsigned char * tag,
+    size_t tag_len,
+    unsigned char * key,
+    size_t key_len,
+    unsigned char * iv,
+    size_t  iv_len,
+    unsigned char ** plain_text,
+    size_t * plain_text_len,
+    char * cipher_suite)
+{
+    // TODO: run all functions regardless of earlier failure to avoid timing attacks?
+    int rv = 0;
+    EVP_CIPHER_CTX *ctx = NULL;
+    EVP_CIPHER * cipher = NULL;
+    unsigned char buf[1024];
+    int buf_len;
+    if(cipher_suite == NULL) cipher_suite = "AES-128-GCM";
+    ctx = EVP_CIPHER_CTX_new();
+    if ((cipher = EVP_CIPHER_fetch(NULL, cipher_suite, NULL)) == NULL) goto end;
+    if(!EVP_DecryptInit_ex2(ctx, cipher, key, iv, NULL)) goto end;
+    if(!EVP_DecryptUpdate(ctx, buf, &buf_len, cipher_text, cipher_text_len))  goto end;
+    *plain_text_len = buf_len;
+
+    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, tag_len, (void*)tag)) goto end;
+    if(!EVP_DecryptFinal_ex(ctx, buf + buf_len, &buf_len)) {
+        ERR_print_errors_fp(stderr);
+        goto end;
+    }
+    *plain_text_len = *plain_text_len + buf_len;
+
+    unsigned char* out_text = (unsigned char*)OPENSSL_malloc((*plain_text_len) + 1);
+    if (out_text == NULL) goto end;
+    memcpy(out_text, buf, *plain_text_len);
+    *plain_text = out_text;
+    rv = 1;
+end:
+    EVP_CIPHER_CTX_free(ctx);
+    EVP_CIPHER_free(cipher);
+    return rv;
 }
 #endif

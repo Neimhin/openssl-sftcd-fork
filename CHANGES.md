@@ -95,10 +95,38 @@ OpenSSL 3.4
 
    *Alexander Kanavin*
 
+ * ECC groups may now customize their initialization to save CPU by using
+   precomputed values. This is used by the P-256 implementation.
+
+   *Watson Ladd*
+
 OpenSSL 3.3
 -----------
 
 ### Changes between 3.3.0 and 3.3.1 [xx XXX xxxx]
+
+ * Fixed potential use after free after SSL_free_buffers() is called.
+
+   The SSL_free_buffers function is used to free the internal OpenSSL
+   buffer used when processing an incoming record from the network.
+   The call is only expected to succeed if the buffer is not currently
+   in use. However, two scenarios have been identified where the buffer
+   is freed even when still in use.
+
+   The first scenario occurs where a record header has been received
+   from the network and processed by OpenSSL, but the full record body
+   has not yet arrived. In this case calling SSL_free_buffers will succeed
+   even though a record has only been partially processed and the buffer
+   is still in use.
+
+   The second scenario occurs where a full record containing application
+   data has been received and processed by OpenSSL but the application has
+   only read part of this data. Again a call to SSL_free_buffers will
+   succeed even though the buffer is still in use.
+
+   ([CVE-2024-4741])
+
+   *Matt Caswell*
 
  * Fixed an issue where checking excessively long DSA keys or parameters may
    be very slow.
@@ -116,6 +144,14 @@ OpenSSL 3.3
    ([CVE-2024-4603])
 
    *Tomáš Mráz*
+
+ * Improved EC/DSA nonce generation routines to avoid bias and timing
+   side channel leaks.
+
+   Thanks to Florian Sieck from Universität zu Lübeck and George Pantelakis
+   and Hubert Kario from Red Hat for reporting the issues.
+
+   *Tomáš Mráz and Paul Dale*
 
 ### Changes between 3.2 and 3.3.0 [9 Apr 2024]
 
@@ -282,7 +318,7 @@ OpenSSL 3.3
 
    *Fisher Yu*
 
- * Enable AES and SHA3 optimisations on Applie Silicon M3-based MacOS systems
+ * Enable AES and SHA3 optimisations on Apple Silicon M3-based MacOS systems
    similar to M1/M2.
 
    *Tom Cosgrove*
@@ -3056,7 +3092,7 @@ breaking changes, and mappings for the large list of deprecated functions.
    this switch breaks interoperability with correct implementations.
 
  * Fix a use after free bug in d2i_X509_PUBKEY when overwriting a
-   re-used X509_PUBKEY object if the second PUBKEY is malformed.
+   reused X509_PUBKEY object if the second PUBKEY is malformed.
 
    *Bernd Edlinger*
 
@@ -4390,7 +4426,7 @@ OpenSSL 1.1.0
    *Billy Bob Brumley, Nicola Tuveri*
 
  * Fix a use after free bug in d2i_X509_PUBKEY when overwriting a
-   re-used X509_PUBKEY object if the second PUBKEY is malformed.
+   reused X509_PUBKEY object if the second PUBKEY is malformed.
 
    *Bernd Edlinger*
 
@@ -16510,7 +16546,7 @@ s-cbc           3624.96k     5258.21k     5530.91k     5624.30k     5628.26k
    *Bodo Moeller*
 
  * Store verify_result within SSL_SESSION also for client side to
-   avoid potential security hole. (Re-used sessions on the client side
+   avoid potential security hole. (Reused sessions on the client side
    always resulted in verify_result==X509_V_OK, not using the original
    result of the server certificate verification.)
 
@@ -20702,6 +20738,8 @@ ndif
 
 <!-- Links -->
 
+[CVE-2024-4741]: https://www.openssl.org/news/vulnerabilities.html#CVE-2024-4741
+[CVE-2024-4603]: https://www.openssl.org/news/vulnerabilities.html#CVE-2024-4603
 [CVE-2024-2511]: https://www.openssl.org/news/vulnerabilities.html#CVE-2024-2511
 [CVE-2024-0727]: https://www.openssl.org/news/vulnerabilities.html#CVE-2024-0727
 [CVE-2023-6237]: https://www.openssl.org/news/vulnerabilities.html#CVE-2023-6237

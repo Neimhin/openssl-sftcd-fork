@@ -73,6 +73,9 @@ typedef unsigned int u_int;
 #include <openssl/ebcdic.h>
 #endif
 #include "internal/sockets.h"
+#ifndef OPENSSL_NO_ECH
+# include <openssl/x509v3.h>
+#endif
 
 #ifndef OPENSSL_NO_ECH
 /*
@@ -677,22 +680,8 @@ static int ssl_ech_servername_cb(SSL *s, int *ad, void *arg)
         return SSL_TLSEXT_ERR_NOACK;
     if (echrv == SSL_ECH_STATUS_SUCCESS && servername != NULL) {
         if (ctx2 != NULL) {
-            int mrv;
-            X509_VERIFY_PARAM *vpm = NULL;
-
-            BIO_printf(p->biodebug,
-                       "ssl_ech_servername_cb: TLS servername: %s.\n",
-                       servername);
-            BIO_printf(p->biodebug,
-                       "ssl_ech_servername_cb: Cert servername: %s.\n",
-                       p->servername);
-            vpm = X509_VERIFY_PARAM_new();
-            if (vpm == NULL)
-                return SSL_TLSEXT_ERR_NOACK;
-            mrv = X509_VERIFY_PARAM_set1_host(vpm, servername,
-                                              strlen(servername));
-            X509_VERIFY_PARAM_free(vpm);
-            if (mrv == 1) {
+            int check_hostrv = X509_check_host(p->scert, servername, 0, 0, NULL);
+            if (check_hostrv == 1) {
                 if (p->biodebug != NULL)
                      BIO_printf(p->biodebug,
                                 "ssl_ech_servername_cb: Switching context.\n");
@@ -701,7 +690,7 @@ static int ssl_ech_servername_cb(SSL *s, int *ad, void *arg)
                 if (p->biodebug!=NULL)
                      BIO_printf(p->biodebug,
                                 "ssl_ech_servername_cb: Not switching context "\
-                                "- no name match (%d).\n",mrv);
+                                "- no name match (%d).\n",check_hostrv);
             }
         }
     } else {

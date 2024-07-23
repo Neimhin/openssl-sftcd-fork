@@ -392,6 +392,12 @@ typedef enum {
     SSL_PHA_REQUESTED        /* request received by client, or sent by server */
 } SSL_PHA_STATE;
 
+typedef enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE} SSL_HRR_STATE;
+
+int debug_print_hrr(FILE *f, SSL_HRR_STATE state);
+int print_hrr(SSL_HRR_STATE hrr, char name[64]);
+
+
 /* CipherSuite length. SSLv3 and all TLS versions. */
 # define TLS_CIPHER_LEN 2
 /* used to hold info on the particular ciphers used */
@@ -422,7 +428,7 @@ struct ssl_cipher_st {
 struct ssl_method_st {
     int version;
     unsigned flags;
-    unsigned long mask;
+    uint64_t mask;
     SSL *(*ssl_new) (SSL_CTX *ctx);
     void (*ssl_free) (SSL *s);
     int (*ssl_reset) (SSL *s);
@@ -533,7 +539,6 @@ struct ssl_session_st {
      * certificate is not ok, we must remember the error for session reuse:
      */
     long verify_result;         /* only for servers */
-    CRYPTO_REF_COUNT references;
     OSSL_TIME timeout;
     OSSL_TIME time;
     OSSL_TIME calc_timeout;
@@ -543,11 +548,6 @@ struct ssl_session_st {
                                  * load the 'cipher' structure */
     unsigned int kex_group;      /* TLS group from key exchange */
     CRYPTO_EX_DATA ex_data;     /* application specific data */
-    /*
-     * These are used to make removal of session-ids more efficient and to
-     * implement a maximum cache size.
-     */
-    struct ssl_session_st *prev, *next;
 
     struct {
         char *hostname;
@@ -584,6 +584,13 @@ struct ssl_session_st {
     size_t ticket_appdata_len;
     uint32_t flags;
     SSL_CTX *owner;
+
+    /*
+     * These are used to make removal of session-ids more efficient and to
+     * implement a maximum cache size. Access requires protection of ctx->lock.
+     */
+    struct ssl_session_st *prev, *next;
+    CRYPTO_REF_COUNT references;
 };
 
 /* Extended master secret support */
@@ -1094,11 +1101,10 @@ struct ssl_ctx_st {
         size_t alpn_outer_len;
         OSSL_ECH_PAD_SIZES ech_pad_sizes; /* ECH padding sizes */
         int sech_version;
-        char * sech_symmetric_key;
-        size_t sech_symmetric_key_len;
+        unsigned char * sech_symmetric_key; // owned
+                 size_t sech_symmetric_key_len;
         char * sech_inner_servername;
         size_t sech_inner_servername_len;
-        struct cert_st * sech_inner_cert;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
     } ext;
@@ -1229,6 +1235,26 @@ struct ssl_st {
     CRYPTO_RWLOCK *lock;
     /* extra application data */
     CRYPTO_EX_DATA ex_data;
+};
+
+struct sech2_plain_text {
+    char ready;
+    unsigned char data[OSSL_SECH2_PLAIN_TEXT_LEN];
+};
+
+struct sech2_aead_nonce {
+    char ready;
+    unsigned char data[OSSL_SECH2_AEAD_NONCE_LEN];
+};
+
+struct sech2_aead_tag {
+    char ready;
+    unsigned char data[OSSL_SECH2_AEAD_TAG_LEN];
+};
+
+struct sech2_session_key {
+    char ready;
+    unsigned char data[32];
 };
 
 struct ssl_connection_st {
@@ -1506,8 +1532,8 @@ struct ssl_connection_st {
     size_t cert_verify_hash_len;
 
     /* Flag to indicate whether we should send a HelloRetryRequest or not */
-    enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE}
-        hello_retry_request;
+    SSL_HRR_STATE hello_retry_request;
+
 
     /*
      * the session_id_context is used to ensure sessions are only reused in
@@ -1597,6 +1623,39 @@ struct ssl_connection_st {
         char *hostname;
 #ifndef OPENSSL_NO_ECH
         SSL_CONNECTION_ECH ech;
+        unsigned char * sech_symmetric_key;
+                 size_t sech_symmetric_key_len;
+        int sech_version;
+        char * sech_inner_servername;
+                 size_t sech_inner_servername_len;
+        char * sech_peer_inner_servername;
+        unsigned char * sech_client_hello_transcript_for_confirmation;
+        size_t sech_client_hello_transcript_for_confirmation_len;
+        unsigned char * sech_ClientHelloOuterContext;
+        size_t sech_ClientHelloOuterContext_len;
+        unsigned char * sech_ClientHelloInner;
+        size_t sech_ClientHelloInner_len;
+        unsigned char * sech_ClientHello2;
+        size_t sech_ClientHello2_len;
+        int sech_status;
+        unsigned char * sech_hrr;
+        size_t sech_hrr_len;
+        unsigned char * sech_inner_random;
+        unsigned char * sech_cipher_text;
+        size_t sech_cipher_text_len;
+        struct sech2_plain_text sech_plain_text;
+        struct sech2_aead_nonce sech_aead_nonce;
+        struct sech2_aead_tag sech_aead_tag;
+        struct sech2_session_key sech_session_key;
+        EVP_MD_CTX *sech_handshake_dgst;
+        BIO *sech_handshake_buffer;
+        char sech_dgst_swap_ready;
+#ifdef SECH_DEBUG
+        unsigned char * sech_transcript_full;
+        size_t sech_transcript_full_len;
+        unsigned char * normal_transcript_full;
+        size_t normal_transcript_full_len;
+#endif
 #endif
         /* certificate status request info */
         /* Status type or -1 if no status type */
@@ -2626,6 +2685,14 @@ __owur size_t ssl3_final_finish_mac(SSL_CONNECTION *s, const char *sender,
 __owur int ssl3_finish_mac(SSL_CONNECTION *s, const unsigned char *buf,
                            size_t len);
 void ssl3_free_digest_list(SSL_CONNECTION *s);
+
+#ifndef OPENSSL_NO_ECH
+__owur int sech2_init_finished_mac(SSL_CONNECTION *s);
+__owur int sech2_finish_mac(SSL_CONNECTION*s, const unsigned char*buf, size_t len);
+__owur int sech2_swap_finish_mac(SSL_CONNECTION*s);
+__owur void sech2_free_digest_list(SSL_CONNECTION*s);
+#endif//OPENSSL_NO_ECH
+
 __owur unsigned long ssl3_output_cert_chain(SSL_CONNECTION *s, WPACKET *pkt,
                                             CERT_PKEY *cpk, int for_comp);
 __owur const SSL_CIPHER *ssl3_choose_cipher(SSL_CONNECTION *s,

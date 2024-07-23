@@ -161,11 +161,16 @@ int tls13_hkdf_expand_ex(OSSL_LIB_CTX *libctx, const char *propq,
     return ret == 0;
 }
 
-int tls13_hkdf_expand(SSL_CONNECTION *s, const EVP_MD *md,
-                      const unsigned char *secret,
-                      const unsigned char *label, size_t labellen,
-                      const unsigned char *data, size_t datalen,
-                      unsigned char *out, size_t outlen, int fatal)
+int tls13_hkdf_expand(
+        SSL_CONNECTION *s,                              
+        const EVP_MD *md,
+        const unsigned char *secret,
+        const unsigned char *label, size_t labellen,
+        const unsigned char *data, size_t datalen,
+        unsigned char *out,
+        size_t outlen,
+        int fatal
+        )
 {
     int ret;
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
@@ -550,6 +555,38 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
     int direction = (which & SSL3_CC_READ) != 0 ? OSSL_RECORD_DIRECTION_READ
                                                 : OSSL_RECORD_DIRECTION_WRITE;
 
+    if(!s->server) {
+        fprintf(stderr, "client swap finish mac?\n");
+    }
+    if(s->ext.sech_dgst_swap_ready &&
+            ((s->server && s->hello_retry_request != SSL_HRR_PENDING) ||
+            (!s->server /* TODO client logic */))) {
+        fprintf(stderr, "swapping finish mac [server==%i] [hrr==%i]\n", s->server, s->hello_retry_request);
+//         sech2_swap_finish_mac(s);
+// int sech2_swap_finish_mac(SSL_CONNECTION *s)
+// {
+    // ssl3_free_digest_list(s);
+    BIO_free(s->s3.handshake_buffer);
+    s->s3.handshake_buffer = NULL;
+    EVP_MD_CTX_free(s->s3.handshake_dgst);
+    s->s3.handshake_dgst = NULL;
+    s->s3.handshake_buffer = s->ext.sech_handshake_buffer;
+    s->s3.handshake_dgst = s->ext.sech_handshake_dgst;
+    s->ext.sech_handshake_buffer = NULL;
+    s->ext.sech_handshake_dgst = NULL;
+#ifdef SECH_DEBUG
+    OPENSSL_free(s->ext.normal_transcript_full);
+    s->ext.normal_transcript_full = s->ext.sech_transcript_full;
+    s->ext.normal_transcript_full_len = s->ext.sech_transcript_full_len;
+    s->ext.sech_transcript_full = NULL;
+    s->ext.sech_transcript_full_len = 0;
+#endif
+    
+//     return 1;
+// }
+        s->ext.sech_dgst_swap_ready = 0;
+    }
+
     if (((which & SSL3_CC_CLIENT) && (which & SSL3_CC_WRITE))
             || ((which & SSL3_CC_SERVER) && (which & SSL3_CC_READ))) {
         if ((which & SSL3_CC_EARLY) != 0) {
@@ -721,7 +758,9 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
         }
     }
 
+
     if ((which & SSL3_CC_EARLY) == 0) {
+        fprintf(stderr, "SSL3_CC_EARLY [server==%i]\n", s->server);
         md = ssl_handshake_md(s);
         cipher = s->s3.tmp.new_sym_enc;
         mac_md = s->s3.tmp.new_hash;
@@ -740,8 +779,9 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
     if (label == server_application_traffic)
         memcpy(s->server_finished_hash, hashval, hashlen);
 
-    if (label == server_handshake_traffic)
+    if (label == server_handshake_traffic) {
         memcpy(s->handshake_traffic_hash, hashval, hashlen);
+    }
 
     if (label == client_application_traffic) {
         /*
