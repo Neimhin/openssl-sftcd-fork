@@ -2085,7 +2085,6 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         goto err;
     }
 
-
     if (!s->hit && !tls1_set_server_sigalgs(s)) {
         /* SSLfatal() already called */
         goto err;
@@ -2254,8 +2253,6 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         s->session->compress_meth = (comp == NULL) ? 0 : comp->id;
 #endif
     }
-
-
 
     sk_SSL_CIPHER_free(ciphers);
     sk_SSL_CIPHER_free(scsvs);
@@ -2555,7 +2552,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     }
 
     /*-
-     * There/are several cases for the session ID to send
+     * There are several cases for the session ID to send
      * back in the server hello:
      * - For session reuse from the session cache,
      *   we send back the old session ID.
@@ -2569,7 +2566,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
      * - In TLSv1.3 we echo back the session id sent to us by the client
      *   regardless
      * s->hit is non-zero in either case of session reuse,
-     * so the following on't overwrite an ID that we're supposed
+     * so the following won't overwrite an ID that we're supposed
      * to send back.
      */
     if (!(SSL_CONNECTION_GET_CTX(s)->session_cache_mode & SSL_SESS_CACHE_SERVER)
