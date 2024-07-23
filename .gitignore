@@ -35,7 +35,6 @@
 /include/openssl/bio.h
 /include/openssl/cmp.h
 /include/openssl/cms.h
-/include/openssl/comp.h
 /include/openssl/conf.h
 /include/openssl/configuration.h
 /include/openssl/crmf.h
