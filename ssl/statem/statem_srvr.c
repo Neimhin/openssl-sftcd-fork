@@ -2739,7 +2739,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
      * we're accepting ECH, if that's the case
      */
     if (
-            sech2_accepted &&
+            !sech2_accepted &&
             s->ext.ech.attempted_type == TLSEXT_TYPE_ech // means we're doing real ECH, not GREASE (TLSEXT_TYPE_ech_unknown -> GREASE)
         && (s->ext.ech.backend == 1
             || (s->ext.ech.cfgs != NULL && s->ext.ech.success == 1))) {
@@ -2828,7 +2828,9 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
         if(s->ext.sech_version == 2 && s->ext.sech_peer_inner_servername) {
 
             if(s->ext.sech_ClientHello2 && 
-                !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)) {
+                !sech2_finish_mac(s,
+                    s->ext.sech_ClientHello2,
+                    s->ext.sech_ClientHello2_len)) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;
             }
