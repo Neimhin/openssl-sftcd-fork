@@ -3544,7 +3544,6 @@ int sech2_make_transcript_buffer(SSL_CONNECTION *s,
         }
     }
 
-    sech_debug_buffer("fixedshbuf", fixedshbuf, *fixedshbuf_len);
     if (
            !WPACKET_memcpy(&tpkt, fixedshbuf, *fixedshbuf_len)
         || !WPACKET_get_length(&tpkt, tlen)) {
@@ -3769,7 +3768,6 @@ int sech2_calc_confirm(
     {
         char msg[1024] = {0};
         sprintf(msg, "shbuf [server==%i]", s->server);
-        sech_debug_buffer(msg, shbuf, shlen);
     }
     if(md == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
@@ -3796,7 +3794,6 @@ int sech2_calc_confirm(
     {
         char msg[1024] = {0};
         sprintf(msg, "accept transcript [server==%i]", s->server);
-        sech_debug_buffer(msg, tbuf, tlen);
     }
     sech_transcript_hash_len = EVP_MD_size(md);
     if ((ctx = EVP_MD_CTX_new()) == NULL

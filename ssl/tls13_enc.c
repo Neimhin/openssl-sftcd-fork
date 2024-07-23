@@ -781,26 +781,6 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
 
     if (label == server_handshake_traffic) {
         memcpy(s->handshake_traffic_hash, hashval, hashlen);
-#ifdef SECH_DEBUG
-        {
-            char msg[1024] = {0};
-            sprintf(msg, "handshake_traffic sech transcript full [server==%i]", s->server);
-            sech_debug_buffer(msg, s->ext.sech_transcript_full, s->ext.sech_transcript_full_len);
-        }
-        {
-            char msg[1024] = {0};
-            sprintf(msg, "handshake_traffic normal transcript full [server==%i]", s->server);
-            sech_debug_buffer(msg, s->ext.normal_transcript_full, s->ext.normal_transcript_full_len);
-        }
-
-        char msg[1024] = {0};
-        char * server = s->server ? "server" : "client";
-        sprintf(msg, "handshake_traffic_hash %s (%lu)", server, hashlen);
-        sech_debug_buffer(msg, hashval, hashlen);
-        memset(msg, 0, sizeof(msg));
-        sprintf(msg, "sech_hrr %s (%lu)", server, s->ext.sech_hrr_len);
-        sech_debug_buffer(msg, s->ext.sech_hrr, s->ext.sech_hrr_len);
-#endif
     }
 
     if (label == client_application_traffic) {

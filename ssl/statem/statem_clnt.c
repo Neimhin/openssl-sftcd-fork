@@ -1250,8 +1250,6 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
                     sech2_make_ClientHelloInner(s);
                     sech2_init_finished_mac(s);
                     sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
-                    sech_debug_buffer("ClientHelloOuter client", s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
-                    sech_debug_buffer("ClientHelloInner client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                 } else { //save ClientHello2
                     // sech2_make_ClientHello2_client(s, pkt);
                     if( s->ext.sech_version == 2 &&
@@ -1838,6 +1836,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         }
         hrr = 1;
 #ifndef OPENSSL_NO_ECH
+        if(s->ext.sech_version == 2)
         {
             // save hrr for sech_accept_confirmation signal
             s->ext.sech_hrr = OPENSSL_malloc(shlen+4); // TODO free
@@ -2173,29 +2172,9 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           goto err;
       }
 
-#ifdef SECH_DEBUG
-      {
-          char buf[16] = {0};
-          memcpy(buf, shbuf+2+SSL3_RANDOM_SIZE-8, 8);
-          memcpy(buf+8, acbuf, 8);
-          sech_debug_buffer("acbufs", buf, 16);
-      }
-#endif
-
       if(memcmp(shbuf + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
           s->ext.sech_dgst_swap_ready = 1;
           s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
-          sech_debug_buffer("client accepted", s->ext.sech_transcript_full, s->ext.sech_transcript_full_len);
-          // if(s->ext.sech_hrr &&
-          //     // !sech2_finish_mac(s, s->ext.sech_hrr, s->ext.sech_hrr_len) &&
-          //     !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)) {
-          //     SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
-          //     goto err;
-          // }
-          // sech2_swap_finish_mac(s);
-      }
-      else {
-          fprintf(stderr, "sech acceptance not found\n");
       }
     }
 #endif//OPENSSL_NO_ECH

@@ -165,8 +165,6 @@ int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
         memcpy(dst, src, len);
     }
 
-    sech_debug_buffer("sech key client:", key, key_len);
-    
     if(1 != sech_helper_encrypt(
         NULL,                   // SSL * s,
         s->ext.sech_plain_text.data, // unsigned char * plain,
@@ -225,7 +223,6 @@ int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
         return CON_FUNC_ERROR;
     }
     unsigned char * ch = WPACKET_get_curr(pkt) - written;
-    sech_debug_buffer("client hello as seen on client", ch, written);
     const size_t session_id_len = s->tmp_session_id_len;
     const size_t len = written - 4;
     ch[1] = (len >> 16) & 0xFF;
@@ -255,7 +252,6 @@ int sech2_make_ClientHello2_client(SSL_CONNECTION *s, WPACKET *pkt)
     length_field[1] = (len >> 8) & 0xFF;  // Middle byte
     length_field[2] = len & 0xFF;         // Least significant byte55);
     s->ext.sech_ClientHello2_len = written;
-    sech_debug_buffer("ClientHello2", s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
     return 1;
 }
 
@@ -278,13 +274,6 @@ int sech2_derive_session_key(SSL_CONNECTION *s)
     hash_len = EVP_MD_size(md);
     unsigned char * tbuf = s->ext.sech_ClientHelloOuterContext;
     size_t tlen = s->ext.sech_ClientHelloOuterContext_len;
-    {
-        unsigned char msg[1024] = {0};
-        sprintf(msg, "ClientHelloOuterContext [server==%i]", s->server);
-        sech_debug_buffer(msg, s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
-    }
-    fprintf(stderr, "ClientHelloOuterContext %i\n", s->server);
-    BIO_dump_fp(stderr, tbuf, tlen);
     if ((ctx = EVP_MD_CTX_new()) == NULL
         || EVP_DigestInit_ex(ctx, md, NULL) <= 0
         || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0

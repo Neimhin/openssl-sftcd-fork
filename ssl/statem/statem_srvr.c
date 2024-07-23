@@ -1492,7 +1492,6 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         data = PACKET_data(pkt); // TODO error handling
         len = PACKET_remaining(pkt); // TODO error handling
         dest = OPENSSL_malloc(len + 4);
-        sech_debug_buffer("client hello as seen on server", data, len);
         if(dest == NULL) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
@@ -1509,8 +1508,6 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         } else {
             s->ext.sech_ClientHello2 = dest;
             s->ext.sech_ClientHello2_len = len + 4;
-            sech_debug_buffer("ClientHello2 server", s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
-            sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len);
         }
     }
 
@@ -2827,9 +2824,14 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
                 memcpy(s->ext.sech_hrr, header, 4);
             }
             memcpy(s->ext.sech_hrr + 4, shbuf+4, shlen-4); // TODO keep header
-            sech_debug_buffer("sech_hrr server", s->ext.sech_hrr, s->ext.sech_hrr_len);
         }
         if(s->ext.sech_version == 2 && s->ext.sech_peer_inner_servername) {
+
+            if(s->ext.sech_ClientHello2 && 
+                !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return CON_FUNC_ERROR;
+            }
             {
                 size_t len = shlen - 4;
                 shbuf[1] = (len >> 16) & 0xFF;
