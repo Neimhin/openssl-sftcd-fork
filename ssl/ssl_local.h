@@ -395,7 +395,7 @@ typedef enum {
 typedef enum {SSL_HRR_NONE = 0, SSL_HRR_PENDING, SSL_HRR_COMPLETE} SSL_HRR_STATE;
 
 int debug_print_hrr(FILE *f, SSL_HRR_STATE state);
-int print_hrr(SSL_HRR_STATE hrr, char name[64]);
+int sprint_hrr(SSL_HRR_STATE hrr, char name[64]);
 
 
 /* CipherSuite length. SSLv3 and all TLS versions. */

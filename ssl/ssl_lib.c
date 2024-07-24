@@ -30,12 +30,12 @@
 
 int debug_print_hrr(FILE *f, SSL_HRR_STATE state) {
     char name[64];
-    print_hrr(state, name);
+    sprint_hrr(state, name);
     fprintf(f, "SSL_HRR_STATE: %s\n", name);
     return 1;
 }
 
-int print_hrr(SSL_HRR_STATE hrr, char name[64])
+int sprint_hrr(SSL_HRR_STATE hrr, char name[64])
 {
     switch(hrr) {
         case SSL_HRR_NONE:
