@@ -1168,6 +1168,35 @@ WORK_STATE ossl_statem_client_post_process_message(SSL_CONNECTION *s,
 }
 
 #ifndef OPENSSL_NO_ECH
+int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
+    if(s->ext.sech_version != 2
+        || s->ext.ech.ch_depth != OSSL_ECH_OUTER_CH_TYPE)
+        return 1;
+    if(s->ext.sech_hrr == NULL) {
+        sech2_make_ClientHelloOuterContext_client(s, pkt);
+        sech2_derive_session_key(s);
+        fprintf(stderr, "ClientHelloOuterContext client\n");
+        BIO_dump_fp(stderr,
+                s->ext.sech_ClientHelloOuterContext,
+                s->ext.sech_ClientHelloOuterContext_len);
+        fprintf(stderr, "sech session key\n");
+        BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
+        sech2_edit_client_hello(s, pkt);
+        sech2_make_ClientHelloInner(s);
+        sech2_init_finished_mac(s);
+        sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+    } else { //save ClientHello2
+        // sech2_make_ClientHello2_client(s, pkt);
+        if( s->ext.sech_version == 2 &&
+            s->ext.sech_hrr && (
+            !sech2_make_ClientHello2_client(s, pkt) ||
+            !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)
+            )) {
+            return 0;
+        }
+    }
+    return 1;
+}
 /*
  * Wrap the existing ClientHello construction with ECH code.
  *
@@ -1234,38 +1263,10 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         BIO_dump_fp(stderr, s->s3.client_random, 32);
         fprintf(stderr, "session id:\n");
         BIO_dump_fp(stderr, s->tmp_session_id, 32);
-        {
-        }
-        if(s->ext.sech_version == 0 || s->ext.ech.ch_depth == OSSL_ECH_INNER_CH_TYPE) // do non-SECH hello random
-        {
-        }
-        else { // do SECH hello random (encrypted SNI in random)
-            if(s->ext.sech_version == 2) {
-                if(s->ext.sech_hrr == NULL) {
-                    sech2_make_ClientHelloOuterContext_client(s, pkt);
-                    sech2_derive_session_key(s);
-                    fprintf(stderr, "sech session key\n");
-                    BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
-                    sech2_edit_client_hello(s, pkt);
-                    sech2_make_ClientHelloInner(s);
-                    sech2_init_finished_mac(s);
-                    sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
-                } else { //save ClientHello2
-                    // sech2_make_ClientHello2_client(s, pkt);
-                    if( s->ext.sech_version == 2 &&
-                        s->ext.sech_hrr && (
-                        !sech2_make_ClientHello2_client(s, pkt) ||
-                        !sech2_finish_mac(s, s->ext.sech_ClientHello2, s->ext.sech_ClientHello2_len)
-                        )) {
-                        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-                        return 0;
-                    }
-                    else {
-                        fprintf(stderr, "client ClientHello2 put in finish mac\n");
-                    }
-                }
-            }
-        }
+        // if(!sech2_client(s, pkt)) {
+        //     SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        //     return 0;
+        // }
         {
             size_t written = 0;
             unsigned char * curr = NULL;

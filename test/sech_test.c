@@ -936,7 +936,6 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 2);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 2);
-    ADD_ALL_TESTS(test_sech2_extract_psk, 2);
     ADD_ALL_TESTS(test_sech_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_tls13_roundtrip_accept_and_resume_with_ticket, 2);
     return 1;

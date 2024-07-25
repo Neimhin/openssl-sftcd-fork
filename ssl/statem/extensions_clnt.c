@@ -1228,8 +1228,21 @@ EXT_RETURN tls_construct_ctos_psk(SSL_CONNECTION *s, WPACKET *pkt,
      * so don't add this extension.
      */
     if (s->session->ssl_version != TLS1_3_VERSION
-            || (s->session->ext.ticklen == 0 && s->psksession == NULL))
+            || (s->session->ext.ticklen == 0 && s->psksession == NULL)) {
+#ifdef SECH_DEBUG
+        {
+            size_t written = 0;
+            WPACKET_get_total_written(pkt, &written);
+            fprintf(stderr, "total written end of PSK extension %lu\n", written);
+        }
+#endif//SECH_DEBUG
+        
+        if(!WPACKET_fill_lengths(pkt) || !sech2_client(s, pkt)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return EXT_RETURN_FAIL;
+        }
         return EXT_RETURN_NOT_SENT;
+    }
 
     if (s->hello_retry_request == SSL_HRR_PENDING)
         handmd = ssl_handshake_md(s);
@@ -1463,6 +1476,11 @@ EXT_RETURN tls_construct_ctos_psk(SSL_CONNECTION *s, WPACKET *pkt,
                 * calculate the HMAC of the message up to the binders
                 */
             || !WPACKET_fill_lengths(pkt)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return EXT_RETURN_FAIL;
+    }
+
+    if(!sech2_client(s, pkt)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return EXT_RETURN_FAIL;
     }

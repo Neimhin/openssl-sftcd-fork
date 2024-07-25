@@ -1,9 +1,11 @@
 #include <openssl/ech.h>
 #include <openssl/rand.h>
+#include "internal/packet.h"
 #include "ssl_local.h"
 #include "ech_local.h"
 #ifndef OPENSSL_NO_ECH
 #include <openssl/sech.h>
+
 
 int sech_helper_encrypt(
     SSL * s,
@@ -385,4 +387,5 @@ int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
     // TODO: set SNI to all 0s
     return 1;
 }
+
 #endif//OPENSSL_NO_ECH

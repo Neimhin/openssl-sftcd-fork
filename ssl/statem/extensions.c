@@ -1111,6 +1111,10 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             return 0;
         }
+        fprintf(stderr, "ClientHelloOuterContext server\n");
+        BIO_dump_fp(stderr,
+                s->ext.sech_ClientHelloOuterContext,
+                s->ext.sech_ClientHelloOuterContext_len);
         sech2_derive_session_key(s);
         fprintf(stderr, "sech session key server:\n");
         BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));

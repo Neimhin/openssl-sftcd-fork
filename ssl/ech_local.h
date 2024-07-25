@@ -463,6 +463,7 @@ int sech2_calc_confirm(
         EVP_MD * md
         )
     ;
+int sech2_client(SSL_CONNECTION * s, WPACKET * pkt);
 int sech2_make_ClientHello2_server(SSL_CONNECTION *s, PACKET *pkt);
 int sech2_save_ClientHello2_client(SSL_CONNECTION *s, WPACKET * pkt);
 int sech2_make_ClientHelloInner(SSL_CONNECTION *s);
