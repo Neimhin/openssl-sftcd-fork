@@ -277,6 +277,7 @@ struct sech_roundtrip_expect {
 
 struct sech_roundtrip_opt {
     char force_hrr;
+    char use_ticket_for_resumption;
     char * certsdir;
     char * inner_cert_file;
     int (*servername_cb)(SSL*s, int*al, void*arg);
@@ -289,6 +290,7 @@ static const inline struct sech_roundtrip_opt default_opt()
 {
     struct sech_roundtrip_opt opt = {
         .force_hrr = 0,
+        .use_ticket_for_resumption = 0,
         .certsdir = certsdir,
         .inner_cert_file = "inner.crt",
         .servername_cb = sech2_roundtrip_accept__servername_cb,
@@ -303,6 +305,60 @@ static const inline struct sech_roundtrip_opt default_opt()
     return opt;
 }
 
+static SSL_SESSION * server_resumption_session = NULL;
+static int psk_find_session_cb(SSL *ssl, const unsigned char *identity,
+                               size_t identity_len, SSL_SESSION **sess)
+{
+    SSL_SESSION *tmpsess = NULL;
+    unsigned char *key;
+    long key_len;
+    const SSL_CIPHER *cipher = NULL;
+
+    fprintf(stderr, "psk_find_session_cb\n");
+    *sess = server_resumption_session;
+    return 1;
+
+//     if (strlen(psk_identity) != identity_len
+//             || memcmp(psk_identity, identity, identity_len) != 0) {
+//         *sess = NULL;
+//         return 1;
+//     }
+// 
+//     if (psksess != NULL) {
+//         SSL_SESSION_up_ref(psksess);
+//         *sess = psksess;
+//         return 1;
+//     }
+// 
+//     key = OPENSSL_hexstr2buf(psk_key, &key_len);
+//     if (key == NULL) {
+//         BIO_printf(bio_err, "Could not convert PSK key '%s' to buffer\n",
+//                    psk_key);
+//         return 0;
+//     }
+// 
+//     /* We default to SHA256 */
+//     cipher = SSL_CIPHER_find(ssl, tls13_aes128gcmsha256_id);
+//     if (cipher == NULL) {
+//         BIO_printf(bio_err, "Error finding suitable ciphersuite\n");
+//         OPENSSL_free(key);
+//         return 0;
+//     }
+// 
+//     tmpsess = SSL_SESSION_new();
+//     if (tmpsess == NULL
+//             || !SSL_SESSION_set1_master_key(tmpsess, key, key_len)
+//             || !SSL_SESSION_set_cipher(tmpsess, cipher)
+//             || !SSL_SESSION_set_protocol_version(tmpsess, SSL_version(ssl))) {
+//         OPENSSL_free(key);
+//         SSL_SESSION_free(tmpsess);
+//         return 0;
+//     }
+//     OPENSSL_free(key);
+//     *sess = tmpsess;
+// 
+//     return 1;
+}
 
 static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
 {
@@ -348,11 +404,9 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
     SSL_CTX_set_sech_symmetric_key(sctx, opt.server_key.data, opt.server_key.length);
-    SSL_CTX_set_sech_version(cctx, 2);
     SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
     SSL_CTX_set_sech_symmetric_key(cctx, opt.client_key.data, opt.client_key.length);
     SSL_CTX_set_sech_version(sctx, 2);
-    SSL_CTX_set_sech_inner_servername(sctx, inner_servername, 0); // len = 0 -> use strlen
     SSL * serverssl = NULL;
     SSL * clientssl = NULL;
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
@@ -361,6 +415,7 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
         return 0;
     if (!TEST_true(SSL_set_tlsext_host_name(clientssl, outer_servername)))                                           return 0;
     if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))                                     return 0;
+
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
     // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
     if(server_certificate == NULL) return 0;
@@ -378,11 +433,56 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     if(!TEST_int_eq(client_status, opt.expect.client_status)) return 0;
     if(!TEST_int_eq(server_status, opt.expect.server_status)) return 0;
 
+    if(opt.use_ticket_for_resumption)
+    {
+        SSL_SESSION * client_sess;
+        SSL * resserverssl = NULL;
+        SSL * resclientssl = NULL;
+        if(
+            !TEST_true(client_sess = SSL_get_session(clientssl)) ||
+            !TEST_true(server_resumption_session = SSL_get_session(serverssl)) ||
+            !TEST_true(client_sess = SSL_SESSION_dup(client_sess)) ||
+            // !TEST_true(SSL_SESSION_up_ref(server_sess)) ||
+            !TEST_true(SSL_shutdown(clientssl) >= 0) ||
+            !TEST_true(SSL_shutdown(serverssl) >= 0) || 0
+          ){
+            return 0;
+        }
+        // SSL_free(serverssl);
+        SSL_free(clientssl);
+        clientssl = NULL;
+
+        SSL_CTX_set_sech_version(cctx, 0);
+        if(!TEST_true(SSL_CTX_set_max_early_data(sctx, 1024)))
+            return 0;
+        SSL_CTX_sess_set_cache_size(sctx, 5);
+        SSL_CTX_set_options(cctx, SSL_OP_ALLOW_NO_DHE_KEX);
+        SSL_CTX_set_psk_find_session_callback(sctx, psk_find_session_cb);
+
+        if (!TEST_true(create_ssl_objects(sctx, cctx, &resserverssl, &resclientssl, NULL, NULL)))
+            return 0;
+        if (!TEST_true(SSL_set_session(resclientssl, client_sess)))
+            return 0;
+        // if (!TEST_true(SSL_set_session(resserverssl, server_sess)))
+        //     return 0;
+        if (!TEST_true(create_ssl_connection(resserverssl, resclientssl, SSL_ERROR_NONE)))
+            return 0;
+        if (!TEST_true(SSL_session_reused(resclientssl)))
+            return 0;
+
+        SSL_SESSION_free(client_sess);
+        SSL_shutdown(resclientssl);
+        SSL_shutdown(resserverssl);
+        SSL_free(resclientssl);
+        SSL_free(resserverssl);
+    }
+    else {
+        SSL_shutdown(clientssl);
+        SSL_shutdown(serverssl);
+        SSL_free(clientssl);
+        SSL_free(serverssl);
+    }
     X509_free(inner_cert);
-    SSL_shutdown(clientssl);
-    SSL_shutdown(serverssl);
-    SSL_free(clientssl);
-    SSL_free(serverssl);
     SSL_CTX_free(sctx);
     SSL_CTX_free(cctx);
     if(verbose)fprintf(stderr, "FINISHED SECH2 ROUNDTRIP\n");
@@ -392,6 +492,14 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
 static int test_sech2_roundtrip_accept(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
+    return sech2_roundtrip(idx, opt);
+}
+
+
+static int test_sech_roundtrip_accept_and_resume_with_ticket(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    opt.use_ticket_for_resumption = 1;
     return sech2_roundtrip(idx, opt);
 }
 
@@ -628,6 +736,11 @@ static int sech2_roundtrip_wrong_key(int idx)
     return 1;
 }
 
+int test_sech2_extract_psk(int idx)
+{
+    return 0;
+}
+
 #endif
 
 int setup_tests(void)
@@ -673,6 +786,8 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 2);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 2);
+    ADD_ALL_TESTS(test_sech2_extract_psk, 2);
+    ADD_ALL_TESTS(test_sech_roundtrip_accept_and_resume_with_ticket, 2);
     return 1;
 err:
     return 0;
