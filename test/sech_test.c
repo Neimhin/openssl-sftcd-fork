@@ -525,7 +525,6 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
       }
     }
 
-
     SSL_CTX *cctx = NULL, *sctx = NULL;
     SSL_CTX *inner_sctx = NULL;
     inner_sctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method());
@@ -552,12 +551,18 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     SSL_CTX_set_sech_version(sctx, 2);
     SSL * serverssl = NULL;
     SSL * clientssl = NULL;
-    if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
+    if (!TEST_true(
+                create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))
+        return 0;
 
     if (opt.force_hrr && !TEST_true(SSL_set1_groups_list(serverssl, "P-384")))
         return 0;
-    if (!TEST_true(SSL_set_tlsext_host_name(clientssl, outer_servername)))                                           return 0;
-    if (!TEST_true(create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))                                     return 0;
+    if (!TEST_true(
+                SSL_set_tlsext_host_name(clientssl, outer_servername)))
+        return 0;
+    if (!TEST_true(
+                create_ssl_connection(serverssl, clientssl, SSL_ERROR_NONE)))
+        return 0;
 
     X509 * server_certificate = SSL_get_peer_certificate(clientssl);
     // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
@@ -595,7 +600,7 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
         SSL_free(clientssl);
         clientssl = NULL;
 
-        SSL_CTX_set_sech_version(cctx, 0);
+        // SSL_CTX_set_sech_version(cctx, 0);
         // if(!TEST_true(SSL_CTX_set_max_early_data(sctx, 1024)))
         //     return 0;
         // SSL_CTX_sess_set_cache_size(sctx, 5);
@@ -884,11 +889,6 @@ static int sech2_roundtrip_wrong_key(int idx)
     if(!TEST_int_eq(client_status, SSL_SECH_STATUS_FAILED)) return 0;
     if(!TEST_int_eq(server_status, SSL_SECH_STATUS_FAILED)) return 0;
     return 1;
-}
-
-int test_sech2_extract_psk(int idx)
-{
-    return 0;
 }
 
 #endif
