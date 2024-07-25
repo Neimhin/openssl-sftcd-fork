@@ -1266,6 +1266,15 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
                 }
             }
         }
+        {
+            size_t written = 0;
+            unsigned char * curr = NULL;
+            WPACKET_get_total_written(pkt, &written);
+            curr = WPACKET_get_curr(pkt) - written;
+            fprintf(stderr, "pkt written after sech2 code\n");
+            fprintf(stderr, "sech_version %i\n", s->ext.sech_version);
+            BIO_dump_fp(stderr, curr, written);
+        }
     #endif//OPENSSL_NO_ECH
         return rv;
     }
@@ -1666,6 +1675,13 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
         return CON_FUNC_ERROR;
     }
 
+    {
+        size_t written = 0;
+        WPACKET_get_total_written(pkt, &written);
+        unsigned char * curr = WPACKET_get_curr(pkt) - written;
+        fprintf(stderr, "pkt written before construct_extensions\n");
+        BIO_dump_fp(stderr, curr, written);
+    }
     /* TLS extensions */
     if (!tls_construct_extensions(s, pkt, SSL_EXT_CLIENT_HELLO, NULL, 0)) {
         /* SSLfatal() already called */

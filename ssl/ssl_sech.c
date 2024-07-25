@@ -105,6 +105,7 @@ int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version)
   switch(version)
   {
     case 2:
+    case 0: // no sech
         ctx->ext.sech_version = version;
         return 1;
     default:

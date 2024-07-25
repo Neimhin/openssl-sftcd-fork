@@ -1762,6 +1762,13 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
         goto err;
     }
 
+    fprintf(stderr, "psk_do_binder: EVP_MD_name = %s [server=%i]\n", EVP_MD_name(md), s->server);
+    fprintf(stderr, "psk_do_binder: master_key [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, sess->master_key, sess->master_key_length);
+
+    fprintf(stderr, "psk_do_binder: early_secret [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, early_secret, hashsize);
+
     /*
      * Create the handshake hash for the binder key...the messages so far are
      * empty!
@@ -1781,11 +1788,21 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
         goto err;
     }
 
+    fprintf(stderr, "psk_do_binder: label [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, label, labelsize);
+    fprintf(stderr, "psk_do_binder: hash [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, hash, hashsize);
+    fprintf(stderr, "psk_do_binder: binderkey [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, binderkey, hashsize);
+
     /* Generate the finished key */
     if (!tls13_derive_finishedkey(s, md, binderkey, finishedkey, hashsize)) {
         /* SSLfatal() already called */
         goto err;
     }
+
+    fprintf(stderr, "psk_do_binder: finishedkey [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, finishedkey, hashsize);
 
     if (EVP_DigestInit_ex(mctx, md, NULL) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -1869,6 +1886,10 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
         }
     }
 
+    fprintf(stderr, "psk_do_binder: msgstart [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, msgstart, binderoffset);
+
+
     if (EVP_DigestUpdate(mctx, msgstart, binderoffset) <= 0
             || EVP_DigestFinal_ex(mctx, hash, NULL) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -1883,6 +1904,7 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
         goto err;
     }
 
+
     if (!sign)
         binderout = tmpbinder;
 
@@ -1895,6 +1917,14 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+
+    fprintf(stderr, "psk_do_binder: mackey [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, mackey, hashsize);
+    fprintf(stderr, "psk_do_binder: hash [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, hash, bindersize);
+    fprintf(stderr, "psk_do_binder: binderout [server=%i]\n", s->server);
+    BIO_dump_fp(stderr, binderout, bindersize);
+
 
     if (sign) {
         ret = 1;
