@@ -644,7 +644,7 @@ static int test_sech2_roundtrip_accept(int idx)
 }
 
 
-static int test_sech_roundtrip_accept_and_resume_with_ticket(int idx)
+static int test_sech2_roundtrip_accept_and_resume_with_ticket(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
     opt.use_ticket_for_resumption = 1;
@@ -936,7 +936,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 2);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 2);
-    ADD_ALL_TESTS(test_sech_roundtrip_accept_and_resume_with_ticket, 2);
+    ADD_ALL_TESTS(test_sech2_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_tls13_roundtrip_accept_and_resume_with_ticket, 2);
     return 1;
 err:
