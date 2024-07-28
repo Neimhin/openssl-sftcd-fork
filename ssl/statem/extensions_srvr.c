@@ -1274,7 +1274,9 @@ int tls_parse_ctos_psk(SSL_CONNECTION *s, PACKET *pkt, unsigned int context,
 
     s->ext.tick_identity = id;
 
-    SSL_SESSION_free(s->session);
+#ifndef OPENSSL_NO_SECH
+    s->ext.sech_session_restore = s->session;
+#endif//OPENSSL_NO_SECH
     s->session = sess;
     return 1;
 err:

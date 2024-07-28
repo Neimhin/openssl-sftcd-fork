@@ -1104,6 +1104,15 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         return 0;
     }
 
+#ifndef OPENSSL_NO_ECH
+    if(!s->ext.sech_symmetric_key) {
+        if(s->session) {
+            s->ext.sech_symmetric_key = OPENSSL_memdup(
+                    s->session->master_key,
+                    s->session->master_key_length);
+            s->ext.sech_symmetric_key_len = s->session->master_key_length;
+        }
+    }
     if(s->ext.sech_version == 2 &&
             s->ext.sech_symmetric_key &&
             s->ext.sech_hrr == NULL) {
@@ -1118,12 +1127,12 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
                 s->ext.sech_ClientHelloOuterContext,
                 s->ext.sech_ClientHelloOuterContext_len);
         sech2_derive_session_key(s);
-        fprintf(stderr, "sech session key server:\n");
+        fprintf(stderr, "sech session key server %p:\n", s);
         BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));
     }
 
-#ifndef OPENSSL_NO_ECH
     if(s->server
+            && s->ext.sech_symmetric_key
             && s->ext.sech_version == 2
             && s->ext.sech_peer_inner_servername == NULL
       )
@@ -1145,6 +1154,8 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         fprintf(stderr, "session key: [%lu]\n", key_len);
         BIO_dump_fp(stderr, key, key_len);
 
+        fprintf(stderr, "cryptkey: [server=%i]\n", s->server);
+        BIO_dump_fp(stderr, key, key_len);
         int decryptrv = sech_helper_decrypt(
             NULL,
             (unsigned char *) cipher_text,
@@ -1165,6 +1176,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
                 return 0;
         }
         else if(decryptrv) {
+            // s->hit = 0;
             memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
             sech2_make_ClientHelloInner(s);
             s->ext.sech_plain_text.ready = 1;
@@ -1176,6 +1188,7 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
             sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
         } else {
             fprintf(stderr, "sech decrypt failed\n");
+            SSL_SESSION_free(s->ext.sech_session_restore);
         }
     }
 #endif
@@ -1726,6 +1739,10 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
     EVP_MD_CTX *ctx = NULL;
     WPACKET tpkt;
     BUF_MEM *tpkt_mem = NULL;
+#endif
+
+#ifndef OPENSSL_NO_SECH
+    s->ext.sech_binderoffset = binderoffset + 3;
 #endif
 
     /* Ensure cast to size_t is safe */

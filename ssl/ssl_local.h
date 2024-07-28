@@ -1647,9 +1647,11 @@ struct ssl_connection_st {
         struct sech2_aead_nonce sech_aead_nonce;
         struct sech2_aead_tag sech_aead_tag;
         struct sech2_session_key sech_session_key;
+        int sech_binderoffset;
         EVP_MD_CTX *sech_handshake_dgst;
         BIO *sech_handshake_buffer;
         char sech_dgst_swap_ready;
+        SSL_SESSION * sech_session_restore;
 #ifdef SECH_DEBUG
         unsigned char * sech_transcript_full;
         size_t sech_transcript_full_len;

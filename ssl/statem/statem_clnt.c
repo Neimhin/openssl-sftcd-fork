@@ -1169,8 +1169,9 @@ WORK_STATE ossl_statem_client_post_process_message(SSL_CONNECTION *s,
 
 #ifndef OPENSSL_NO_ECH
 int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
-    if(s->ext.sech_version != 2
-        || s->ext.ech.ch_depth != OSSL_ECH_OUTER_CH_TYPE)
+    if(s->ext.sech_version != 2 ||
+        s->ext.sech_symmetric_key == NULL ||
+        s->ext.ech.ch_depth != OSSL_ECH_OUTER_CH_TYPE)
         return 1;
     if(s->ext.sech_hrr == NULL) {
         sech2_make_ClientHelloOuterContext_client(s, pkt);
@@ -1179,7 +1180,7 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
         BIO_dump_fp(stderr,
                 s->ext.sech_ClientHelloOuterContext,
                 s->ext.sech_ClientHelloOuterContext_len);
-        fprintf(stderr, "sech session key\n");
+        fprintf(stderr, "sech session key client\n");
         BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
         sech2_edit_client_hello(s, pkt);
         sech2_make_ClientHelloInner(s);

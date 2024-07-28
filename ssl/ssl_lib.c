@@ -937,6 +937,7 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
     s->ssl_pkey_num = SSL_PKEY_NUM + ctx->sigalg_list_len;
 #ifndef OPENSSL_NO_ECH
     s->ext.sech_version = ctx->ext.sech_version;
+    s->ext.sech_binderoffset = -1;
     s->ext.sech_peer_inner_servername = NULL;
     s->ext.sech_hrr = NULL;
     s->ext.sech_hrr_len = 0;

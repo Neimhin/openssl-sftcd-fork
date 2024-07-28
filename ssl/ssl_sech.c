@@ -204,6 +204,8 @@ int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
         memcpy(dst, src, len);
     }
 
+    fprintf(stderr, "cryptkey\n");
+    BIO_dump_fp(stderr, key, key_len);
     if(1 != sech_helper_encrypt(
         NULL,                   // SSL * s,
         s->ext.sech_plain_text.data, // unsigned char * plain,
@@ -320,6 +322,10 @@ int sech2_derive_session_key(SSL_CONNECTION *s)
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+    fprintf(stderr, "session key in [server=%i] %p\n", s->server, s);
+    BIO_dump_fp(stderr, s->ext.sech_ClientHelloOuterContext, s->ext.sech_ClientHelloOuterContext_len);
+    BIO_dump_fp(stderr, s->ext.sech_symmetric_key, s->ext.sech_symmetric_key_len);
+    BIO_dump_fp(stderr, hash, hash_len);
     const unsigned char * expansion_label = (unsigned char *) "sech2 session";
     size_t labellen = sizeof("sech2 session");
     if (!tls13_hkdf_expand(
@@ -359,11 +365,15 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
     OPENSSL_assert(ch_len);
     const size_t version_length = 2;
     const size_t header_length = 4;
-    s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(ch, ch_len);
+    size_t len = ch_len;
+    if(s->ext.sech_binderoffset >= 0) {
+        len = s->ext.sech_binderoffset;
+    }
+    s->ext.sech_ClientHelloOuterContext = OPENSSL_memdup(ch, len);
 
     if(s->ext.sech_ClientHelloOuterContext == NULL)
     { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return 0; }
-    s->ext.sech_ClientHelloOuterContext_len = ch_len; 
+    s->ext.sech_ClientHelloOuterContext_len = len; 
 
     {
         void * random = s->ext.sech_ClientHelloOuterContext + header_length + version_length + OSSL_SECH2_AEAD_NONCE_LEN;

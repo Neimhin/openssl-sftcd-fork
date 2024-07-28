@@ -1994,6 +1994,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         i = ssl_get_prev_session(s, clienthello);
         if (i == 1) {
             /* previous session */
+            fprintf(stderr, "inner_servername at prev session: %s\n", s->ext.sech_peer_inner_servername);
             s->hit = 1;
         } else if (i == -1) {
             /* SSLfatal() already called */

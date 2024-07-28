@@ -301,6 +301,7 @@ struct sech_roundtrip_opt {
     char * certsdir;
     char * inner_cert_file;
     char * inner_key_file;
+    char * outer_servername;
     int (*servername_cb)(SSL*s, int*al, void*arg);
     struct sech_key client_key;
     struct sech_key server_key;
@@ -507,6 +508,7 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
         // SSL_CTX_set_psk_find_session_callback(sctx, psk_find_session_cb);
         
 
+        fprintf(stderr, "before create_ssl_objects\n");
         if (!TEST_true(create_ssl_objects(sctx, cctx, &resserverssl, &resclientssl, NULL, NULL)))
             return 0;
         if (!TEST_true(SSL_set_session(resclientssl, client_sess)) ||
@@ -566,7 +568,7 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     char * outer_cert_file = test_mk_file_path(opt.certsdir, "outer.crt");
     char * outer_key_file  = test_mk_file_path(opt.certsdir, "outer.key");
     char * inner_servername = "inner.com";
-    char * outer_servername = "outer.com";
+    char * outer_servername = opt.outer_servername;
     if(inner_cert == NULL) return 0;
 
     if(verbose) {
@@ -612,7 +614,7 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
 
     if (opt.force_hrr && !TEST_true(SSL_set1_groups_list(serverssl, "P-384")))
         return 0;
-    if (!TEST_true(
+    if (outer_servername && !TEST_true(
                 SSL_set_tlsext_host_name(clientssl, outer_servername)))
         return 0;
     if (!TEST_true(
@@ -625,7 +627,7 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     int check_host = X509_check_host(server_certificate, opt.expect.check_host, 0, 0, NULL);
     if(check_host != 1) {
         if(verbose)
-            TEST_info("sech2_roundtrip got wrong outer_servername: expected %s: check_host=%i\n", opt.expect.check_host, check_host);
+            TEST_info("sech2_roundtrip got wrong host: expected %s: check_host=%i\n", opt.expect.check_host, check_host);
         return 0;
     }
 
@@ -698,6 +700,13 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
 static int test_sech2_roundtrip_accept(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
+    return sech2_roundtrip(idx, opt);
+}
+
+static int test_sech2_roundtrip_accept_no_outer_sni(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    opt.outer_servername = NULL;
     return sech2_roundtrip(idx, opt);
 }
 
@@ -990,6 +999,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(sech2_sanity_check_certs, 1);
     ADD_ALL_TESTS(sech2_roundtrip_wrong_key, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_accept, 2);
+    ADD_ALL_TESTS(test_sech2_roundtrip_accept_no_outer_sni, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_reject, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 2);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 2);
