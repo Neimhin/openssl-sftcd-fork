@@ -1652,6 +1652,7 @@ struct ssl_connection_st {
         BIO *sech_handshake_buffer;
         char sech_dgst_swap_ready;
         SSL_SESSION * sech_session_restore;
+        char sech_use_resumption;
 #ifdef SECH_DEBUG
         unsigned char * sech_transcript_full;
         size_t sech_transcript_full_len;

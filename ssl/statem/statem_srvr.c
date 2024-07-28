@@ -1967,6 +1967,12 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         goto err;
     }
 
+    if (SSL_CONNECTION_IS_TLS13(s)) {
+        memcpy(s->tmp_session_id, s->clienthello->session_id,
+               s->clienthello->session_id_len);
+        s->tmp_session_id_len = s->clienthello->session_id_len;
+    }
+
     /*
      * We don't allow resumption in a backwards compatible ClientHello.
      * In TLS1.1+, session_id MUST be empty.
@@ -1992,7 +1998,98 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         }
     } else {
         i = ssl_get_prev_session(s, clienthello);
-        if (i == 1) {
+#ifndef OPENSSL_NO_ECH
+    if(s->ext.sech_version == 2 && !s->ext.sech_symmetric_key) {
+        if(s->session) {
+            s->ext.sech_symmetric_key = OPENSSL_memdup(
+                    s->session->master_key,
+                    s->session->master_key_length);
+            s->ext.sech_symmetric_key_len = s->session->master_key_length;
+            s->ext.sech_use_resumption = 1;
+        }
+    }
+    if(s->server &&
+            s->ext.sech_version == 2 &&
+            s->ext.sech_symmetric_key &&
+            s->ext.sech_hrr == NULL) {
+        fprintf(stderr, "sech session id server:\n");
+        BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
+        if(!sech2_make_ClientHelloOuterContext_server(s)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            return 0;
+        }
+        fprintf(stderr, "ClientHelloOuterContext server\n");
+        BIO_dump_fp(stderr,
+                s->ext.sech_ClientHelloOuterContext,
+                s->ext.sech_ClientHelloOuterContext_len);
+        sech2_derive_session_key(s);
+        fprintf(stderr, "sech session key server %p:\n", s);
+        BIO_dump_fp(stderr, s->ext.sech_session_key.data, sizeof(s->ext.sech_session_key.data));
+    }
+
+    if(s->server
+            && s->ext.sech_symmetric_key
+            && s->ext.sech_version == 2
+            && s->ext.sech_peer_inner_servername == NULL
+      )
+    {
+        unsigned char * iv = s->s3.client_random;
+        size_t iv_len = 12;
+        size_t cipher_text_len = 12 + OSSL_SECH2_INNER_RANDOM_LEN;
+        unsigned char * cipher_text = OPENSSL_malloc(cipher_text_len);
+        memcpy(cipher_text, s->s3.client_random + 12, SSL3_RANDOM_SIZE - 12);
+        memcpy(cipher_text + SSL3_RANDOM_SIZE - 12, s->clienthello->session_id, 16);
+
+        unsigned char * tag = s->clienthello->session_id + 16;
+        size_t tag_len = 16;
+        unsigned char * plain_text_out = NULL;
+        size_t plain_text_out_len = 0;
+        char * cipher_suite = NULL;
+        unsigned char * key = s->ext.sech_session_key.data;
+        size_t key_len = sizeof(s->ext.sech_session_key.data);
+        fprintf(stderr, "session key: [%lu]\n", key_len);
+        BIO_dump_fp(stderr, key, key_len);
+
+        fprintf(stderr, "cryptkey: [server=%i]\n", s->server);
+        BIO_dump_fp(stderr, key, key_len);
+        int decryptrv = sech_helper_decrypt(
+            NULL,
+            (unsigned char *) cipher_text,
+            cipher_text_len,
+            tag,
+            tag_len,
+            key,
+            key_len,
+            iv,
+            iv_len,
+            &plain_text_out,
+            &plain_text_out_len,
+            cipher_suite
+            );
+        fprintf(stderr, "decryptrv: %i\n", decryptrv);
+        if(plain_text_out_len != OSSL_SECH2_PLAIN_TEXT_LEN) { // COULDDO make this an assertion
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return 0;
+        }
+        else if(decryptrv) {
+            if(s->ext.sech_use_resumption)
+                s->hit = 0;
+            memcpy(s->ext.sech_plain_text.data, plain_text_out, OSSL_SECH2_PLAIN_TEXT_LEN);
+            sech2_make_ClientHelloInner(s);
+            s->ext.sech_plain_text.ready = 1;
+            unsigned char inner_servername[OSSL_SECH2_INNER_DATA_LEN + 1] = {0};
+            memcpy(inner_servername, plain_text_out, OSSL_SECH2_INNER_DATA_LEN);
+            s->ext.sech_peer_inner_servername = OPENSSL_strdup((char *)inner_servername);
+            s->ext.sech_inner_random = OPENSSL_memdup(plain_text_out + 12, OSSL_SECH2_INNER_RANDOM_LEN);
+            sech2_init_finished_mac(s);
+            sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+        } else {
+            fprintf(stderr, "sech decrypt failed\n");
+            SSL_SESSION_free(s->ext.sech_session_restore);
+        }
+    }
+#endif
+        if (i == 1 && !s->ext.sech_use_resumption) {
             /* previous session */
             fprintf(stderr, "inner_servername at prev session: %s\n", s->ext.sech_peer_inner_servername);
             s->hit = 1;
@@ -2006,12 +2103,6 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                 goto err;
             }
         }
-    }
-
-    if (SSL_CONNECTION_IS_TLS13(s)) {
-        memcpy(s->tmp_session_id, s->clienthello->session_id,
-               s->clienthello->session_id_len);
-        s->tmp_session_id_len = s->clienthello->session_id_len;
     }
 
     /*

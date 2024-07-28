@@ -360,7 +360,7 @@ int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s)
 
 int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len) 
 {
-    OPENSSL_assert(session_id_len == 32); // TODO this is not strictly necessary?
+    OPENSSL_assert(session_id_len == 32);
     OPENSSL_assert(ch);
     OPENSSL_assert(ch_len);
     const size_t version_length = 2;

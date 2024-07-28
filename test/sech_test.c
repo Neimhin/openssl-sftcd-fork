@@ -520,10 +520,10 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
         //     return 0;
         if (!TEST_true(create_ssl_connection(resserverssl, resclientssl, SSL_ERROR_NONE)))
             return 0;
-        if (!TEST_true(SSL_session_reused(resclientssl)))
-            return 0;
+        // if (!TEST_true(SSL_session_reused(resclientssl)))
+        //     return 0;
 
-        server_certificate = SSL_get_peer_certificate(clientssl);
+        server_certificate = SSL_get_peer_certificate(resclientssl);
         // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
         if(server_certificate == NULL) {
             if(verbose) {
