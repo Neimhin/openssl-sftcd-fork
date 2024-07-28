@@ -256,11 +256,6 @@ int sech2_roundtrip_accept__servername_cb(SSL *s, int *al, void *arg)
     return 1;
 }
 
-int tls13_roundtrip_accept__servername_cb(SSL *s, int *al, void *arg)
-{
-    return 1;
-}
-
 struct sech_key {
     char data[32];
     size_t length;
@@ -305,22 +300,11 @@ struct sech_roundtrip_opt {
     char use_ticket_for_resumption;
     char * certsdir;
     char * inner_cert_file;
+    char * inner_key_file;
     int (*servername_cb)(SSL*s, int*al, void*arg);
     struct sech_key client_key;
     struct sech_key server_key;
     struct sech_roundtrip_expect expect;
-};
-
-struct tls13_roundtrip_expect {
-    char check_host[256];
-};
-
-struct tls13_roundtrip_opt {
-    char force_hrr;
-    char use_ticket_for_resumption;
-    char * certsdir;
-    int (*servername_cb)(SSL*s, int*al, void*arg);
-    struct tls13_roundtrip_expect expect;
 };
 
 static const inline struct sech_roundtrip_opt default_opt()
@@ -330,6 +314,7 @@ static const inline struct sech_roundtrip_opt default_opt()
         .use_ticket_for_resumption = 0,
         .certsdir = certsdir,
         .inner_cert_file = "inner.crt",
+        .inner_key_file = "inner.key",
         .servername_cb = sech2_roundtrip_accept__servername_cb,
         .client_key = key1,
         .server_key = key1,
@@ -342,15 +327,32 @@ static const inline struct sech_roundtrip_opt default_opt()
     return opt;
 }
 
+
+struct tls13_roundtrip_expect {
+    char check_host[256];
+    char resumption_check_host[256];
+};
+struct tls13_roundtrip_opt {
+    char force_hrr;
+    char use_ticket_for_resumption;
+    char * certsdir;
+    char * inner_cert_file;
+    char * inner_key_file;
+    int (*servername_cb)(SSL*s, int*al, void*arg);
+    struct tls13_roundtrip_expect expect;
+};
 static const inline struct tls13_roundtrip_opt tls13_default_opt()
 {
     struct tls13_roundtrip_opt opt = {
         .force_hrr = 0,
         .use_ticket_for_resumption = 0,
         .certsdir = certsdir,
-        .servername_cb = tls13_roundtrip_accept__servername_cb,
+        .servername_cb = sech2_roundtrip_accept__servername_cb,
+        .inner_cert_file = "inner.crt",
+        .inner_key_file = "inner.key",
         .expect = {
             .check_host = "outer.com",
+            .resumption_check_host = "inner.com",
         }
     };
     return opt;
@@ -418,6 +420,9 @@ static int psk_find_session_cb(SSL *ssl, const unsigned char *identity,
 
 static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
 {
+    char * inner_cert_file = test_mk_file_path(opt.certsdir, opt.inner_cert_file);
+    X509 * inner_cert = load_cert(inner_cert_file);
+    char * inner_key_file  = test_mk_file_path(opt.certsdir, opt.inner_key_file);
     char * outer_cert_file = test_mk_file_path(opt.certsdir, "outer.crt");
     char * outer_key_file  = test_mk_file_path(opt.certsdir, "outer.key");
     char * outer_servername = "outer.com";
@@ -425,6 +430,16 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
     SSL * serverssl = NULL;
     SSL * clientssl = NULL;
     X509 * server_certificate = NULL; 
+
+    SSL_CTX *inner_sctx = NULL;
+    inner_sctx = SSL_CTX_new_ex(libctx, NULL, TLS_server_method());
+    if(!TEST_ptr(inner_sctx)) return 0; // TODO cleanup/free
+    SECH_SERVERNAME_ARG servername_arg = {.inner_cert=inner_cert, .inner_ctx=inner_sctx}; 
+    SSL_CTX_set_min_proto_version(inner_sctx, TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(inner_sctx, TLS1_3_VERSION);
+    if(!TEST_int_eq(SSL_CTX_use_certificate(inner_sctx, inner_cert), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_use_PrivateKey_file(inner_sctx, inner_key_file, SSL_FILETYPE_PEM), 1)) return 0; // TODO cleanup/free
+    if(!TEST_int_eq(SSL_CTX_check_private_key(inner_sctx), 1)) return 0; // TODO cleanup/free
 
     if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
                                        TLS_client_method(),
@@ -434,6 +449,8 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
     
     if(!TEST_true(SSL_CTX_set_sech_version(sctx, 2)))
         return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, sech2_roundtrip_accept__servername_cb))) return 0;
+    if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
 
     if (opt.force_hrr && !TEST_true(SSL_set1_groups_list(serverssl, "P-384")))
@@ -504,6 +521,26 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
         if (!TEST_true(SSL_session_reused(resclientssl)))
             return 0;
 
+        server_certificate = SSL_get_peer_certificate(clientssl);
+        // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
+        if(server_certificate == NULL) {
+            if(verbose) {
+                TEST_info("resumption returned no certificate, sech2 rejected");
+            }
+            return 0;
+        }
+        int check_host = X509_check_host(server_certificate, opt.expect.resumption_check_host, 0, 0, NULL);
+        if(check_host != 1) {
+        if(verbose) {
+            X509_NAME * peer_name = X509_get_subject_name(server_certificate);
+            char * n = X509_NAME_oneline(peer_name, NULL, 0);
+            TEST_info("sech2_roundtrip got wrong outer_servername: expected %s: got %s: check_host=%i\n",
+                    opt.expect.check_host, n, check_host);
+            OPENSSL_free(n);
+        }
+        return 0;
+    }
+
         SSL_SESSION_free(client_sess);
         SSL_shutdown(resclientssl);
         SSL_shutdown(resserverssl);
@@ -524,12 +561,12 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
 static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
 {
     char * inner_cert_file = test_mk_file_path(opt.certsdir, opt.inner_cert_file);
+    X509 * inner_cert = load_cert(inner_cert_file);
     char * inner_key_file  = test_mk_file_path(opt.certsdir, "inner.key");
     char * outer_cert_file = test_mk_file_path(opt.certsdir, "outer.crt");
     char * outer_key_file  = test_mk_file_path(opt.certsdir, "outer.key");
     char * inner_servername = "inner.com";
     char * outer_servername = "outer.com";
-    X509 * inner_cert = load_cert(inner_cert_file);
     if(inner_cert == NULL) return 0;
 
     if(verbose) {
