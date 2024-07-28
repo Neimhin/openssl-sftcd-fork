@@ -471,83 +471,88 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
 
     if(opt.use_ticket_for_resumption)
     {
-        SSL_SESSION * client_sess;
-        SSL * resserverssl = NULL;
-        SSL * resclientssl = NULL;
-        SSL_SESSION * minimal_sess = SSL_SESSION_new();
-        unsigned char resumption_psk[EVP_MAX_MD_SIZE] = {0};
-        size_t resumption_psk_len = 0;
-        if(minimal_sess == NULL) {
-            return 0;
-        }
-        if(
-            !TEST_true(client_sess = SSL_get_session(clientssl)) ||
-            // !TEST_true(server_resumption_session = SSL_get_session(serverssl)) ||
-            !TEST_true(client_sess = SSL_SESSION_dup(client_sess))
-            // !TEST_true(server_resumption_session = SSL_SESSION_dup(server_resumption_session))
-            // !TEST_true(SSL_SESSION_up_ref(server_sess)) ||
-          ){
-            return 0;
-        }
-        do_ssl_shutdown(clientssl);
-        SSL_set_connect_state(clientssl);
-
-        resumption_psk_len = SSL_SESSION_get_master_key(client_sess, NULL, 0);
-        SSL_SESSION_get_master_key(client_sess, resumption_psk, resumption_psk_len);
-        fprintf(stderr, "resumption_psk\n");
-        BIO_dump_fp(stderr, resumption_psk, resumption_psk_len);
-        BIO_closesocket(SSL_get_fd(clientssl));
-        // SSL_free(serverssl);
-        SSL_free(clientssl);
-        clientssl = NULL;
-
-        // if(!TEST_true(SSL_CTX_set_max_early_data(sctx, 1024)))
-        //     return 0;
-        SSL_CTX_sess_set_cache_size(sctx, 5);
-        // SSL_CTX_set_options(cctx, SSL_OP_ALLOW_NO_DHE_KEX);
-        // SSL_CTX_set_psk_find_session_callback(sctx, psk_find_session_cb);
-        
-
-        fprintf(stderr, "before create_ssl_objects\n");
-        if (!TEST_true(create_ssl_objects(sctx, cctx, &resserverssl, &resclientssl, NULL, NULL)))
-            return 0;
-        if (!TEST_true(SSL_set_session(resclientssl, client_sess)) ||
-            !TEST_true(SSL_set_sech_symmetric_key(resclientssl, resumption_psk, resumption_psk_len)) ||
-            !TEST_true(SSL_set_sech_version(resclientssl, 2)) ||
-            !TEST_true(SSL_set_sech_inner_servername(resclientssl, "inner.com")))
-            return 0;
-        // if (!TEST_true(SSL_set_session(resserverssl, server_sess)))
-        //     return 0;
-        if (!TEST_true(create_ssl_connection(resserverssl, resclientssl, SSL_ERROR_NONE)))
-            return 0;
-        // if (!TEST_true(SSL_session_reused(resclientssl)))
-        //     return 0;
-
-        server_certificate = SSL_get_peer_certificate(resclientssl);
-        // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
-        if(server_certificate == NULL) {
-            if(verbose) {
-                TEST_info("resumption returned no certificate, sech2 rejected");
+        for(int i = 0; i < 10; i++) {
+            SSL_SESSION * client_sess;
+            SSL * resserverssl = NULL;
+            SSL * resclientssl = NULL;
+            SSL_SESSION * minimal_sess = SSL_SESSION_new();
+            unsigned char resumption_psk[EVP_MAX_MD_SIZE] = {0};
+            size_t resumption_psk_len = 0;
+            if(minimal_sess == NULL) {
+                return 0;
             }
-            return 0;
-        }
-        int check_host = X509_check_host(server_certificate, opt.expect.resumption_check_host, 0, 0, NULL);
-        if(check_host != 1) {
-        if(verbose) {
-            X509_NAME * peer_name = X509_get_subject_name(server_certificate);
-            char * n = X509_NAME_oneline(peer_name, NULL, 0);
-            TEST_info("sech2_roundtrip got wrong outer_servername: expected %s: got %s: check_host=%i\n",
-                    opt.expect.check_host, n, check_host);
-            OPENSSL_free(n);
-        }
-        return 0;
-    }
+            if(
+                !TEST_true(client_sess = SSL_get_session(clientssl)) ||
+                // !TEST_true(server_resumption_session = SSL_get_session(serverssl)) ||
+                !TEST_true(client_sess = SSL_SESSION_dup(client_sess))
+                // !TEST_true(server_resumption_session = SSL_SESSION_dup(server_resumption_session))
+                // !TEST_true(SSL_SESSION_up_ref(server_sess)) ||
+              ){
+                return 0;
+            }
+            do_ssl_shutdown(clientssl);
+            SSL_set_connect_state(clientssl);
 
-        SSL_SESSION_free(client_sess);
-        SSL_shutdown(resclientssl);
-        SSL_shutdown(resserverssl);
-        SSL_free(resclientssl);
-        SSL_free(resserverssl);
+            resumption_psk_len = SSL_SESSION_get_master_key(client_sess, NULL, 0);
+            SSL_SESSION_get_master_key(client_sess, resumption_psk, resumption_psk_len);
+            fprintf(stderr, "resumption_psk\n");
+            BIO_dump_fp(stderr, resumption_psk, resumption_psk_len);
+            BIO_closesocket(SSL_get_fd(clientssl));
+            // SSL_free(serverssl);
+            SSL_free(clientssl);
+            clientssl = NULL;
+
+            // if(!TEST_true(SSL_CTX_set_max_early_data(sctx, 1024)))
+            //     return 0;
+            SSL_CTX_sess_set_cache_size(sctx, 5);
+            // SSL_CTX_set_options(cctx, SSL_OP_ALLOW_NO_DHE_KEX);
+            // SSL_CTX_set_psk_find_session_callback(sctx, psk_find_session_cb);
+            
+
+            fprintf(stderr, "before create_ssl_objects\n");
+            if (!TEST_true(create_ssl_objects(sctx, cctx, &resserverssl, &resclientssl, NULL, NULL)))
+                return 0;
+            if (!TEST_true(SSL_set_session(resclientssl, client_sess)) ||
+                !TEST_true(SSL_set_sech_symmetric_key(resclientssl, resumption_psk, resumption_psk_len)) ||
+                !TEST_true(SSL_set_sech_version(resclientssl, 2)) ||
+                !TEST_true(SSL_set_sech_inner_servername(resclientssl, "inner.com")))
+                return 0;
+            // if (!TEST_true(SSL_set_session(resserverssl, server_sess)))
+            //     return 0;
+            if (!TEST_true(create_ssl_connection(resserverssl, resclientssl, SSL_ERROR_NONE)))
+                return 0;
+            // if (!TEST_true(SSL_session_reused(resclientssl)))
+            //     return 0;
+
+            server_certificate = SSL_get_peer_certificate(resclientssl);
+            // if(verbose) X509_print_ex_fp(stderr, server_certificate, 0, 0);
+            if(server_certificate == NULL) {
+                if(verbose) {
+                    TEST_info("resumption returned no certificate, sech2 rejected");
+                }
+                return 0;
+            }
+            int check_host = X509_check_host(server_certificate, opt.expect.resumption_check_host, 0, 0, NULL);
+            if(check_host != 1) {
+                if(verbose) {
+                    X509_NAME * peer_name = X509_get_subject_name(server_certificate);
+                    char * n = X509_NAME_oneline(peer_name, NULL, 0);
+                    TEST_info("sech2_roundtrip got wrong outer_servername: expected %s: got %s: check_host=%i\n",
+                            opt.expect.check_host, n, check_host);
+                    OPENSSL_free(n);
+                }
+                return 0;
+            }
+            fprintf(stderr, "all good\n");
+            SSL_SESSION_free(client_sess);
+            SSL_shutdown(clientssl);
+            SSL_shutdown(serverssl);
+            SSL_free(clientssl);
+            SSL_free(serverssl);
+            clientssl = resclientssl;
+            serverssl = resserverssl;
+        }
+
     }
     else {
         SSL_shutdown(clientssl);
