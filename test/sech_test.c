@@ -431,6 +431,9 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, outer_cert_file, outer_key_file)))
         return 0;
+    
+    if(!TEST_true(SSL_CTX_set_sech_version(sctx, 2)))
+        return 0;
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl, NULL, NULL)))                              return 0;
 
     if (opt.force_hrr && !TEST_true(SSL_set1_groups_list(serverssl, "P-384")))
@@ -453,17 +456,28 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
         SSL_SESSION * client_sess;
         SSL * resserverssl = NULL;
         SSL * resclientssl = NULL;
+        SSL_SESSION * minimal_sess = SSL_SESSION_new();
+        unsigned char resumption_psk[EVP_MAX_MD_SIZE] = {0};
+        size_t resumption_psk_len = 0;
+        if(minimal_sess == NULL) {
+            return 0;
+        }
         if(
             !TEST_true(client_sess = SSL_get_session(clientssl)) ||
-            !TEST_true(server_resumption_session = SSL_get_session(serverssl)) ||
-            !TEST_true(client_sess = SSL_SESSION_dup(client_sess)) ||
-            !TEST_true(server_resumption_session = SSL_SESSION_dup(server_resumption_session))
+            // !TEST_true(server_resumption_session = SSL_get_session(serverssl)) ||
+            !TEST_true(client_sess = SSL_SESSION_dup(client_sess))
+            // !TEST_true(server_resumption_session = SSL_SESSION_dup(server_resumption_session))
             // !TEST_true(SSL_SESSION_up_ref(server_sess)) ||
           ){
             return 0;
         }
         do_ssl_shutdown(clientssl);
         SSL_set_connect_state(clientssl);
+
+        resumption_psk_len = SSL_SESSION_get_master_key(client_sess, NULL, 0);
+        SSL_SESSION_get_master_key(client_sess, resumption_psk, resumption_psk_len);
+        fprintf(stderr, "resumption_psk\n");
+        BIO_dump_fp(stderr, resumption_psk, resumption_psk_len);
         BIO_closesocket(SSL_get_fd(clientssl));
         // SSL_free(serverssl);
         SSL_free(clientssl);
@@ -474,10 +488,14 @@ static int tls13_roundtrip(int idx, struct tls13_roundtrip_opt opt)
         SSL_CTX_sess_set_cache_size(sctx, 5);
         // SSL_CTX_set_options(cctx, SSL_OP_ALLOW_NO_DHE_KEX);
         // SSL_CTX_set_psk_find_session_callback(sctx, psk_find_session_cb);
+        
 
         if (!TEST_true(create_ssl_objects(sctx, cctx, &resserverssl, &resclientssl, NULL, NULL)))
             return 0;
-        if (!TEST_true(SSL_set_session(resclientssl, client_sess)))
+        if (!TEST_true(SSL_set_session(resclientssl, client_sess)) ||
+            !TEST_true(SSL_set_sech_symmetric_key(resclientssl, resumption_psk, resumption_psk_len)) ||
+            !TEST_true(SSL_set_sech_version(resclientssl, 2)) ||
+            !TEST_true(SSL_set_sech_inner_servername(resclientssl, "inner.com")))
             return 0;
         // if (!TEST_true(SSL_set_session(resserverssl, server_sess)))
         //     return 0;
@@ -596,6 +614,9 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
           ){
             return 0;
         }
+
+        fprintf(stderr, "SSL_SESSION:\n");
+        SSL_SESSION_print_fp(stderr, client_sess);
         // SSL_free(serverssl);
         SSL_free(clientssl);
         clientssl = NULL;

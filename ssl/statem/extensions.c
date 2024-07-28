@@ -1104,7 +1104,9 @@ static int final_server_name(SSL_CONNECTION *s, unsigned int context, int sent)
         return 0;
     }
 
-    if(s->ext.sech_version == 2 && s->ext.sech_hrr == NULL) {
+    if(s->ext.sech_version == 2 &&
+            s->ext.sech_symmetric_key &&
+            s->ext.sech_hrr == NULL) {
         fprintf(stderr, "sech session id server:\n");
         BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
         if(!sech2_make_ClientHelloOuterContext_server(s)) {
@@ -1864,6 +1866,8 @@ int tls_psk_do_binder(SSL_CONNECTION *s, const EVP_MD *md,
 #ifndef OPENSSL_NO_ECH
         }
 #endif
+        fprintf(stderr, "hdata\n");
+        BIO_dump_fp(stderr, hdata, hdatalen);
 
         /*
          * For servers the handshake buffer data will include the second

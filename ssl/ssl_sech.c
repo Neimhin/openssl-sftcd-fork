@@ -115,6 +115,20 @@ int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version)
   }
 }
 
+int SSL_set_sech_version(SSL *ctx, int version)
+{
+  SSL_CONNECTION * s = SSL_CONNECTION_FROM_SSL(ctx);
+  switch(version)
+  {
+    case 2:
+    case 0: // no sech
+        s->ext.sech_version = version;
+        return 1;
+    default:
+        return 0;
+  }
+}
+
 int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len)
 {
     if (key == NULL) return 0;
@@ -125,6 +139,17 @@ int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char *key, size_t key_len
     return 1;
 }
 
+int SSL_set_sech_symmetric_key(SSL *ssl, const char *key, size_t key_len)
+{
+    SSL_CONNECTION * s = SSL_CONNECTION_FROM_SSL(ssl);
+    if (key == NULL) return 0;
+    if (s == NULL) return 0;
+    s->ext.sech_symmetric_key = OPENSSL_memdup(key, key_len);
+    if(s->ext.sech_symmetric_key == NULL) return 0;
+    s->ext.sech_symmetric_key_len = key_len;
+    return 1;
+}
+
 int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len)
 {
     if(inner_servername_len == 0 && inner_servername != NULL) {
@@ -132,6 +157,17 @@ int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int 
     }
     ctx->ext.sech_inner_servername_len = inner_servername_len;
     ctx->ext.sech_inner_servername = OPENSSL_strdup(inner_servername);
+    return 1;
+}
+
+int SSL_set_sech_inner_servername(SSL *ssl, char* inner_servername, int inner_servername_len)
+{
+    SSL_CONNECTION * s = SSL_CONNECTION_FROM_SSL(ssl);
+    if(inner_servername_len == 0 && inner_servername != NULL) {
+      inner_servername_len = strlen(inner_servername);
+    }
+    s->ext.sech_inner_servername_len = inner_servername_len;
+    s->ext.sech_inner_servername = OPENSSL_strdup(inner_servername);
     return 1;
 }
 
