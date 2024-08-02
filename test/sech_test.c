@@ -12,12 +12,13 @@
 #include <openssl/sech.h>
 #include "testutil.h"
 #include "helpers/ssltestlib.h"
+# define OSSL_ECH_MAX_LINELEN 1000 /* for a sanity check */
+#include "helpers/echconfiglist_from_PEM.h"
 
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #ifndef OPENSSL_NO_ECH
 
-# define OSSL_ECH_MAX_LINELEN 1000 /* for a sanity check */
 # define TEST_FAIL 0
 # define TEST_PASS 1
 
@@ -41,6 +42,7 @@ void do_ssl_shutdown(SSL *ssl)
         }
     } while (ret < 0);
 }
+
 /*
  * The command line argument one can provide is the location
  * of test certificates etc, which would be in $TOPDIR/test/certs
@@ -963,6 +965,75 @@ static int sech2_roundtrip_wrong_key(int idx)
     return 1;
 }
 
+/* Test a basic roundtrip with ECH, with a PEM file input */
+static int test_sech_hpke_roundtrip(int idx)
+{
+    int res = 0;
+    char *echkeyfile = NULL;
+    char *echconfig = NULL;
+    size_t echconfiglen = 0;
+    SSL_CTX *cctx = NULL, *sctx = NULL;
+    SSL *clientssl = NULL, *serverssl = NULL;
+    int clientstatus, serverstatus;
+    char *cinner = NULL, *couter = NULL, *sinner = NULL, *souter = NULL;
+
+    /* read our pre-cooked ECH PEM file */
+    echkeyfile = test_mk_file_path(certsdir, "echconfig.pem");
+    if (!TEST_ptr(echkeyfile))
+        goto end;
+    echconfig = echconfiglist_from_PEM(echkeyfile);
+    if (!TEST_ptr(echconfig))
+        goto end;
+    echconfiglen = strlen(echconfig);
+    if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
+                                       TLS_client_method(),
+                                       TLS1_3_VERSION, TLS1_3_VERSION,
+                                       &sctx, &cctx, cert, privkey)))
+        goto end;
+    if (!TEST_true(SSL_CTX_sech_set1_sechconfig(cctx, (unsigned char *)echconfig,
+                                              echconfiglen)))
+        goto end;
+    if (!TEST_true(SSL_CTX_sech_server_enable_file(sctx, echkeyfile,
+                                                  SSL_ECH_USE_FOR_RETRY)))
+         goto end;
+    if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl,
+                                      &clientssl, NULL, NULL)))
+        goto end;
+    if (!TEST_true(SSL_set_tlsext_host_name(clientssl, "server.example")))
+        goto end;
+    if (!TEST_true(create_ssl_connection(serverssl, clientssl,
+                                         SSL_ERROR_NONE)))
+        goto end;
+    serverstatus = SSL_ech_get_status(serverssl, &sinner, &souter);
+    if (verbose)
+        TEST_info("%s: server status %d, %s, %s",
+                  __func__, serverstatus, sinner, souter);
+    if (!TEST_int_eq(serverstatus, SSL_SECH_STATUS_SUCCESS))
+        goto end;
+    /* override cert verification */
+    SSL_set_verify_result(clientssl, X509_V_OK);
+    clientstatus = SSL_ech_get_status(clientssl, &cinner, &couter);
+    if (verbose)
+        TEST_info("%s: client status %d, %s, %s",
+                  __func__, clientstatus, cinner, couter);
+    if (!TEST_int_eq(clientstatus, SSL_SECH_STATUS_SUCCESS))
+        goto end;
+    /* all good */
+    res = 1;
+end:
+    OPENSSL_free(sinner);
+    OPENSSL_free(souter);
+    OPENSSL_free(cinner);
+    OPENSSL_free(couter);
+    OPENSSL_free(echkeyfile);
+    OPENSSL_free(echconfig);
+    SSL_free(clientssl);
+    SSL_free(serverssl);
+    SSL_CTX_free(cctx);
+    SSL_CTX_free(sctx);
+    return res;
+}
+
 #endif
 
 int setup_tests(void)
@@ -1011,6 +1082,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_tls13_roundtrip_accept_and_resume_with_ticket, 2);
+    ADD_ALL_TESTS(test_sech_hpke_roundtrip, 2);
     return 1;
 err:
     return 0;

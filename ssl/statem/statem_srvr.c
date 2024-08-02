@@ -1481,7 +1481,16 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
     CLIENTHELLO_MSG *clienthello = NULL;
 
 #ifndef OPENSSL_NO_ECH
+    /*
+     * For split-mode we want to have a way to point at the CH octets
+     * for the accept-confirmation calculation.
+     */
+    if (s == NULL || pkt == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
 
+#ifndef OPENSSL_NO_SECH
     if(s->ext.sech_version == 2)
     {
         const unsigned char * data = NULL;
@@ -1509,15 +1518,8 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
             s->ext.sech_ClientHello2_len = len + 4;
         }
     }
+#endif//OPENSSL_NO_SECH
 
-    /*
-     * For split-mode we want to have a way to point at the CH octets
-     * for the accept-confirmation calculation.
-     */
-    if (s == NULL || pkt == NULL) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        goto err;
-    }
     if (s->server == 1 && PACKET_remaining(pkt) != 0) {
         int rv = 0, innerflag = -1;
         size_t startofsessid = 0, startofexts = 0, echoffset = 0;

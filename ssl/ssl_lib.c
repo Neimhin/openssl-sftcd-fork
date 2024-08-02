@@ -935,7 +935,7 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
 #endif
 
     s->ssl_pkey_num = SSL_PKEY_NUM + ctx->sigalg_list_len;
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
     s->ext.sech_version = ctx->ext.sech_version;
     s->ext.sech_use_resumption = 0;
     s->ext.sech_binderoffset = -1;
@@ -958,6 +958,20 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
     }
     s->ext.sech_plain_text.ready = 0;
     s->ext.sech_session_key.ready = 0;
+    s->ext.sech_configs_len = ctx->ext.sech_configs_len;
+    if(s->ext.sech_configs_len > 0) {
+        s->ext.sech_configs = SSL_ECH_dup(
+                ctx->ext.sech_configs,
+                s->ext.sech_configs_len,
+                OSSL_ECH_SELECT_ALL);
+        if (s->ext.sech_configs == NULL)
+            goto err;
+    }
+    else {
+        s->ext.sech_configs = NULL;
+    }
+#endif
+#ifndef OPENSSL_NO_ECH
     s->ext.ech.attempted_type = TLSEXT_TYPE_ech;
     s->ext.ech.ncfgs = ctx->ext.nechs;
     if (s->ext.ech.ncfgs > 0) {
@@ -4290,6 +4304,10 @@ SSL_CTX *SSL_CTX_new_ex(OSSL_LIB_CTX *libctx, const char *propq,
     ret->ext.ech_pad_sizes.certver_unit = OSSL_ECH_CERTVERPAD_UNIT;
     ret->ext.ech_pad_sizes.ee_min = OSSL_ECH_ENCEXTPAD_MIN;
     ret->ext.ech_pad_sizes.ee_unit = OSSL_ECH_ENCEXTPAD_UNIT;
+#endif
+#ifndef OPENSSL_NO_SECH
+    ret->ext.sech_configs = NULL;
+    ret->ext.sech_configs_len = 0;
 #endif
     return ret;
  err:

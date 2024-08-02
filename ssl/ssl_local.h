@@ -1100,11 +1100,15 @@ struct ssl_ctx_st {
         unsigned char *alpn_outer; /* Outer ALPN (if any) */
         size_t alpn_outer_len;
         OSSL_ECH_PAD_SIZES ech_pad_sizes; /* ECH padding sizes */
+#endif
+#ifndef OPENSSL_NO_SECH
         int sech_version;
         unsigned char * sech_symmetric_key; // owned
                  size_t sech_symmetric_key_len;
         char * sech_inner_servername;
         size_t sech_inner_servername_len;
+        SSL_ECH *sech_configs;
+        int sech_configs_len;
 #endif
         unsigned char cookie_hmac_key[SHA256_DIGEST_LENGTH];
     } ext;
@@ -1623,6 +1627,10 @@ struct ssl_connection_st {
         char *hostname;
 #ifndef OPENSSL_NO_ECH
         SSL_CONNECTION_ECH ech;
+#endif
+#ifndef OPENSSL_NO_SECH
+        SSL_ECH * sech_configs;
+        size_t sech_configs_len;
         unsigned char * sech_symmetric_key;
                  size_t sech_symmetric_key_len;
         int sech_version;

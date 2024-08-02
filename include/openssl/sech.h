@@ -12,5 +12,9 @@ int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version);
 int SSL_set_sech_version(SSL *s, int version);
 int SSL_set_sech_symmetric_key(SSL *ssl, const char *key, size_t key_len);
 int SSL_get_sech_status(SSL * s, char **inner_sni, char **outer_sni);
+int SSL_CTX_sech_set1_sechconfig(SSL_CTX *ctx, const unsigned char *val,
+                               size_t len);
+int SSL_CTX_sech_server_enable_file(SSL_CTX *ctx, const char *pemfile,
+                                   int for_retry);
 #endif
 #endif

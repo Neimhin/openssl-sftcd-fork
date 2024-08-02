@@ -21,6 +21,40 @@
 #  include <openssl/hpke.h>
 
 /*
+ * To meet the needs of script-based tools (likely to deal with
+ * base64 or ascii-hex encodings) and of libraries that might
+ * handle binary values we supported various input formats for
+ * encoded ECHConfigList API inputs:
+ * - a binary (wireform) HTTPS/SVCB RRVALUE or just the ECHConfigList
+ *   set of octets from that
+ * - base64 encoded version of the above
+ * - ascii-hex encoded version of the above
+ * - DNS zone-file presentation-like format containing "ech=<b64-stuff>"
+ * - we ccan also indicate the caller would like the library to guess
+ *   which ecoding is being used
+ *
+ * This code supports catenated lists of such values (to make it easier
+ * to feed values from scripts). Catenated binary values need no separator
+ * as there is internal length information. Catenated ascii-hex or
+ * base64 values need a separator semi-colon.
+ *
+ * All catenated values passed in a single call must use the same
+ * encoding method.
+ */
+# define OSSL_ECH_FMT_GUESS     0  /* implementation will guess */
+# define OSSL_ECH_FMT_BIN       1  /* catenated binary ECHConfigList */
+# define OSSL_ECH_FMT_B64TXT    2  /* base64 ECHConfigList (';' separated) */
+# define OSSL_ECH_FMT_ASCIIHEX  3  /* ascii-hex ECHConfigList (';' separated */
+# define OSSL_ECH_FMT_HTTPSSVC  4  /* presentation form with "ech=<b64>" */
+# define OSSL_ECH_FMT_DIG_UNK   5  /* dig unknown format (mainly ascii-hex) */
+# define OSSL_ECH_FMT_DNS_WIRE  6  /* DNS wire format (binary + other) */
+/* special case: HTTPS RR presentation form with no "ech=<b64>" */
+# define OSSL_ECH_FMT_HTTPSSVC_NO_ECH 7
+
+# define OSSL_ECH_B64_SEPARATOR " "    /* separator str for b64 decode  */
+# define OSSL_ECH_FMT_LINESEP   "\r\n" /* separator str for lines  */
+
+/*
  * Define this to get loads more lines of tracing which is
  * very useful for interop.
  * This needs tracing enabled at build time, e.g.:
@@ -228,6 +262,10 @@ typedef struct ssl_ech_st {
     int for_retry; /* whether to use this ECHConfigList in a retry */
     EVP_PKEY *keyshare; /* long(ish) term ECH private keyshare on a server */
 } SSL_ECH;
+
+#ifndef OPENSSL_NO_SECH
+#define SSL_SECH SSL_ECH;
+#endif//OPENSSL_NO_SECH
 
 /**
  * @brief The ECH details associated with an SSL_CONNECTION structure

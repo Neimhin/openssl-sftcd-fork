@@ -101,39 +101,6 @@
 # define OSSL_ECH_PADDING_TARGET 128 /* ECH cleartext padded to at least this */
 # define OSSL_ECH_PADDING_INCREMENT 32 /* ECH padded to a multiple of this */
 
-/*
- * To meet the needs of script-based tools (likely to deal with
- * base64 or ascii-hex encodings) and of libraries that might
- * handle binary values we supported various input formats for
- * encoded ECHConfigList API inputs:
- * - a binary (wireform) HTTPS/SVCB RRVALUE or just the ECHConfigList
- *   set of octets from that
- * - base64 encoded version of the above
- * - ascii-hex encoded version of the above
- * - DNS zone-file presentation-like format containing "ech=<b64-stuff>"
- * - we ccan also indicate the caller would like the library to guess
- *   which ecoding is being used
- *
- * This code supports catenated lists of such values (to make it easier
- * to feed values from scripts). Catenated binary values need no separator
- * as there is internal length information. Catenated ascii-hex or
- * base64 values need a separator semi-colon.
- *
- * All catenated values passed in a single call must use the same
- * encoding method.
- */
-# define OSSL_ECH_FMT_GUESS     0  /* implementation will guess */
-# define OSSL_ECH_FMT_BIN       1  /* catenated binary ECHConfigList */
-# define OSSL_ECH_FMT_B64TXT    2  /* base64 ECHConfigList (';' separated) */
-# define OSSL_ECH_FMT_ASCIIHEX  3  /* ascii-hex ECHConfigList (';' separated */
-# define OSSL_ECH_FMT_HTTPSSVC  4  /* presentation form with "ech=<b64>" */
-# define OSSL_ECH_FMT_DIG_UNK   5  /* dig unknown format (mainly ascii-hex) */
-# define OSSL_ECH_FMT_DNS_WIRE  6  /* DNS wire format (binary + other) */
-/* special case: HTTPS RR presentation form with no "ech=<b64>" */
-# define OSSL_ECH_FMT_HTTPSSVC_NO_ECH 7
-
-# define OSSL_ECH_B64_SEPARATOR " "    /* separator str for b64 decode  */
-# define OSSL_ECH_FMT_LINESEP   "\r\n" /* separator str for lines  */
 
 /*
  * The wire-format type code for ECH/ECHConfiGList within an SVCB or HTTPS RR
@@ -5109,6 +5076,8 @@ int SSL_CTX_ech_set1_echconfig(SSL_CTX *ctx, const unsigned char *val,
     return 1;
 }
 
+
+
 int SSL_ech_set_server_names(SSL *ssl, const char *inner_name,
                              const char *outer_name, int no_outer)
 {
@@ -6264,5 +6233,146 @@ err:
     OPENSSL_free(new_echs);
     return rv;
 }
+#endif
 
+#ifndef OPENSSL_NO_SECH
+// TODO: merge this with SSL_CTX_ech_set1_echconfig by adding a parameter to say whether adding sechconfig or echconfig
+int SSL_CTX_sech_set1_sechconfig(SSL_CTX *ctx, const unsigned char *val,
+                               size_t len)
+{
+    SSL_ECH *sechs = NULL;
+    SSL_ECH *tmp = NULL;
+    int num_sechs = 0;
+
+    if (ctx == NULL || val == NULL || len == 0) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_NULL_PARAMETER);
+        return 0;
+    }
+    if (local_ech_add(OSSL_ECH_FMT_GUESS, len, val, &num_sechs, &sechs) != 1) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    if (num_sechs == 0) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    if (ctx->ext.sech_configs == NULL) {
+        ctx->ext.sech_configs = sechs;
+        ctx->ext.sech_configs_len = num_sechs;
+        return 1;
+    }
+    /* otherwise accumulate */
+    tmp = OPENSSL_realloc(ctx->ext.sech_configs,
+                          (ctx->ext.sech_configs_len + num_sechs) * sizeof(SSL_ECH));
+    if (tmp == NULL) {
+        SSL_ECH_free_arr(sechs, num_sechs);
+        OPENSSL_free(sechs);
+        return 0;
+    }
+    ctx->ext.sech_configs = tmp;
+    /* shallow copy top level, keeping lower levels */
+    memcpy(&ctx->ext.sech_configs[ctx->ext.sech_configs_len], sechs, num_sechs * sizeof(SSL_ECH));
+    ctx->ext.sech_configs_len += num_sechs;
+    /* top level can now be free'd */
+    OPENSSL_free(sechs);
+    return 1;
+}
+
+int SSL_CTX_sech_server_enable_file(SSL_CTX *ctx, const char *pemfile,
+                                   int for_retry)
+{
+    int index = -1;
+    int fnamestat = 0;
+    SSL_ECH *server_ech_configs = NULL;
+    int rv = 1;
+
+    if (ctx == NULL || pemfile == NULL) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_NULL_PARAMETER);
+        return 0;
+    }
+    /* Check if we already loaded that one etc.  */
+    fnamestat = ech_check_filenames(ctx, pemfile, &index);
+    switch (fnamestat) {
+    case OSSL_ECH_KEYPAIR_NEW:
+        /* fall through */
+    case OSSL_ECH_KEYPAIR_MODIFIED:
+        /* processed below */
+        break;
+    case OSSL_ECH_KEYPAIR_UNMODIFIED:
+        /* nothing to do */
+        return 1;
+    case OSSL_ECH_KEYPAIR_FILEMISSING:
+        /* nothing to do, but trace this and let caller handle it */
+        OSSL_TRACE_BEGIN(TLS) {
+            BIO_printf(trc_out, "Returning OSSL_ECH_FILEMISSING from "
+                       "SSL_CTX_ech_server_enable_file for %s\n", pemfile);
+            BIO_printf(trc_out, "That's unexpected and likely indicates a "
+                       "problem, but the application might be able to "
+                       "continue\n");
+        } OSSL_TRACE_END(TLS);
+        ERR_raise(ERR_LIB_SSL, SSL_R_FILE_OPEN_FAILED);
+        return SSL_R_FILE_OPEN_FAILED;
+    case OSSL_ECH_KEYPAIR_ERROR:
+        ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+        return 0;
+    default:
+        ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    /* Load up the file content */
+    rv = ech_readpemfile(ctx, 1, pemfile, NULL, 0, &server_ech_configs, for_retry);
+    if (rv != 1) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_INVALID_ARGUMENT);
+        return 0;
+    }
+    /*
+     * This is a restriction of our PEM file scheme - we only accept
+     * one public key per PEM file.
+     * (Well, simplification would be more accurate than restriction:-)
+     */
+    if (server_ech_configs == NULL || server_ech_configs->cfg == NULL || server_ech_configs->cfg->nrecs != 1) {
+        ERR_raise(ERR_LIB_SSL, ERR_R_PASSED_INVALID_ARGUMENT);
+        return 0;
+    }
+    /* Now store the keypair in a new or current slot */
+    if (fnamestat == OSSL_ECH_KEYPAIR_MODIFIED) {
+        SSL_ECH *curr_ec = NULL;
+
+        if (index < 0 || index >= ctx->ext.sech_configs_len) {
+            SSL_ECH_free(server_ech_configs);
+            OPENSSL_free(server_ech_configs);
+            ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+            return 0;
+        }
+        curr_ec = &ctx->ext.sech_configs[index];
+        SSL_ECH_free(curr_ec);
+        memset(curr_ec, 0, sizeof(SSL_ECH));
+        *curr_ec = *server_ech_configs; /* struct copy */
+        OPENSSL_free(server_ech_configs);
+        return 1;
+    }
+    if (fnamestat == OSSL_ECH_KEYPAIR_NEW) {
+        SSL_ECH *re_ec =
+            OPENSSL_realloc(ctx->ext.sech_configs,
+                (ctx->ext.sech_configs_len + 1) * sizeof(SSL_ECH));
+        SSL_ECH *new_ec = NULL;
+
+        if (re_ec == NULL) {
+            SSL_ECH_free(server_ech_configs);
+            OPENSSL_free(server_ech_configs);
+            ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+            return 0;
+        }
+        ctx->ext.sech_configs = re_ec;
+        new_ec = &ctx->ext.sech_configs[ctx->ext.sech_configs_len];
+        memset(new_ec, 0, sizeof(SSL_ECH));
+        *new_ec = *server_ech_configs;
+        ctx->ext.sech_configs_len++;
+        OPENSSL_free(server_ech_configs);
+        return 1;
+    }
+    /* shouldn't ever happen, but hey... */
+    ERR_raise(ERR_LIB_SSL, ERR_R_INTERNAL_ERROR);
+    return 0;
+}
 #endif

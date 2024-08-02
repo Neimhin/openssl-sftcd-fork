@@ -3,7 +3,8 @@
 #include "internal/packet.h"
 #include "ssl_local.h"
 #include "ech_local.h"
-#ifndef OPENSSL_NO_ECH
+#include "sech_local.h"
+#ifndef OPENSSL_NO_SECH
 #include <openssl/sech.h>
 
 
@@ -89,6 +90,81 @@ void sech_debug_buffer(char*msg, const unsigned char*buf, size_t blen) {
     fprintf(stderr, "(%i) %s\n", blen, base64_hash);
     BIO_dump_fp(stderr, buf, blen);
 // #endif//SECH_DEBUG
+}
+
+
+/*
+ * The enc and payload are allocated here and must be freed by the caller
+ * if encryption is successful.
+ */
+int sech5_hpke_enc(SSL *s,
+        const struct sech5_hpke_enc_in in,
+        struct sech5_hpke_enc_out * out
+                   // unsigned char * clear, size_t clear_len,
+                   // OSSL_HPKE_SUITE hpke_suite,
+                   // unsigned char * pub, size_t pub_len,
+                   // unsigned char * info,
+                   // size_t info_len,
+                   // const unsigned char * aad,
+                   // size_t aad_len,
+                   // unsigned char ** enc,
+                   // size_t * enc_len,
+                   // unsigned char ** ciphertext,
+                   // size_t * ciphertext_len
+                   )
+{
+    int rv = 1;
+    unsigned char * mypub = NULL;
+    OSSL_HPKE_CTX * hpke_ctx = NULL;
+    int hpke_mode = OSSL_HPKE_MODE_BASE;
+    int subrv = 0;
+    size_t mypub_len = 0;
+    unsigned char * cipher = NULL;
+    size_t cipher_len = 0;
+    size_t enc_len = 0;
+    enc_len = OSSL_HPKE_get_public_encap_size(in.hpke_suite);
+    mypub = OPENSSL_malloc(enc_len);
+    if(mypub == NULL) {
+        rv = 0;
+        goto end;
+    }
+    hpke_ctx = OSSL_HPKE_CTX_new(
+            hpke_mode, in.hpke_suite,
+            OSSL_HPKE_ROLE_SENDER, NULL, NULL);
+    if(hpke_ctx == NULL) {
+        rv = 0;
+    }
+
+    mypub_len = enc_len;
+    subrv = OSSL_HPKE_encap(
+            hpke_ctx, mypub, &mypub_len,
+            in.pub, in.pub_len, in.info, in.info_len);
+    if(!subrv) {
+        rv = 0;
+        goto end;
+    }
+    cipher_len = OSSL_HPKE_get_ciphertext_size(in.hpke_suite, in.clear_len);
+    cipher = OPENSSL_malloc(cipher_len);
+    if(cipher == NULL) {
+        rv = 0;
+        goto end;
+    }
+    subrv = OSSL_HPKE_seal(hpke_ctx,
+            cipher, &cipher_len,
+            in.aad, in.aad_len,
+            in.clear, in.clear_len);
+    out->enc = mypub;
+    out->enc_len = mypub_len;
+    out->ciphertext =  cipher;
+    out->ciphertext_len = cipher_len;
+    fprintf(stderr, "cipher_len %lu\n", out->ciphertext_len);
+    rv = 1;
+end:
+    if(rv != 1) {
+        OPENSSL_free(mypub);
+        OPENSSL_free(cipher);
+    }
+    return rv;
 }
 
 int SSL_get_sech_status(SSL * ssl, char **inner_sni, char **outer_sni)
@@ -433,5 +509,4 @@ int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
     // TODO: set SNI to all 0s
     return 1;
 }
-
 #endif//OPENSSL_NO_ECH
