@@ -306,6 +306,7 @@ struct sech_roundtrip_opt {
     char * outer_servername;
     int (*servername_cb)(SSL*s, int*al, void*arg);
     struct sech_key client_key;
+    char set_client_key;
     struct sech_key server_key;
     struct sech_roundtrip_expect expect;
 };
@@ -320,6 +321,7 @@ static const inline struct sech_roundtrip_opt default_opt()
         .inner_key_file = "inner.key",
         .servername_cb = sech2_roundtrip_accept__servername_cb,
         .client_key = key1,
+        .set_client_key = 1,
         .server_key = key1,
         .expect = {
             .check_host = "inner.com",
@@ -609,7 +611,8 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
     if (!TEST_true(SSL_CTX_set_tlsext_servername_callback(sctx, opt.servername_cb))) return 0;
     if (!TEST_true(SSL_CTX_set_tlsext_servername_arg(sctx, (void*) &servername_arg))) return 0;
     SSL_CTX_set_sech_version(cctx, 2);
-    SSL_CTX_set_sech_symmetric_key(sctx, opt.server_key.data, opt.server_key.length);
+    if(opt.set_client_key)
+        SSL_CTX_set_sech_symmetric_key(sctx, opt.server_key.data, opt.server_key.length);
     SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
     SSL_CTX_set_sech_symmetric_key(cctx, opt.client_key.data, opt.client_key.length);
     SSL_CTX_set_sech_version(sctx, 2);
@@ -707,6 +710,16 @@ static int sech2_roundtrip(int idx, struct sech_roundtrip_opt opt)
 static int test_sech2_roundtrip_accept(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
+    return sech2_roundtrip(idx, opt);
+}
+
+static int test_sech2_api_no_key(int idx)
+{
+    struct sech_roundtrip_opt opt = default_opt();
+    opt.set_client_key = 0;
+    memcpy(opt.expect.check_host, "outer.com", sizeof("outer.com"));
+    opt.expect.client_status = SSL_SECH_STATUS_FAILED;
+    opt.expect.server_status = SSL_SECH_STATUS_FAILED;
     return sech2_roundtrip(idx, opt);
 }
 
@@ -990,6 +1003,10 @@ static int test_sech_hpke_roundtrip(int idx)
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, cert, privkey)))
         goto end;
+    if (!TEST_true(SSL_CTX_set_sech_version(cctx, 5)))
+        goto end;
+    if (!TEST_true(SSL_CTX_set_sech_version(sctx, 5)))
+        goto end;
     if (!TEST_true(SSL_CTX_sech_set1_sechconfig(cctx, (unsigned char *)echconfig,
                                               echconfiglen)))
         goto end;
@@ -1080,6 +1097,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 2);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 2);
+    ADD_ALL_TESTS(test_sech2_api_no_key, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_tls13_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_sech_hpke_roundtrip, 2);

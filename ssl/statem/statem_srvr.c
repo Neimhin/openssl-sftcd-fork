@@ -2054,6 +2054,13 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
 
         fprintf(stderr, "cryptkey: [server=%i]\n", s->server);
         BIO_dump_fp(stderr, key, key_len);
+
+        fprintf(stderr, "iv server\n");
+        BIO_dump_fp(stderr, iv, iv_len);
+        fprintf(stderr, "ct server\n");
+        BIO_dump_fp(stderr, cipher_text, cipher_text_len);
+        fprintf(stderr, "tag server\n");
+        BIO_dump_fp(stderr, tag, tag_len);
         int decryptrv = sech_helper_decrypt(
             NULL,
             (unsigned char *) cipher_text,

@@ -182,8 +182,9 @@ int SSL_CTX_set_sech_version(SSL_CTX *ctx, int version)
 {
   switch(version)
   {
-    case 2:
     case 0: // no sech
+    case 2:
+    case 5:
         ctx->ext.sech_version = version;
         return 1;
     default:
@@ -247,22 +248,21 @@ int SSL_set_sech_inner_servername(SSL *ssl, char* inner_servername, int inner_se
     return 1;
 }
 
-int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
+int sech2_make_payload64(SSL_CONNECTION *s, WPACKET * pkt) {
+    SSL_CTX * sctx = SSL_CONNECTION_GET_CTX(s);
+    unsigned char * tag = NULL;
+    size_t tag_len = 16;
     size_t written;
     if(!WPACKET_get_total_written(pkt, &written)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
     unsigned char * ch = WPACKET_get_curr(pkt) - written;
-    unsigned char * p = ch + 4 + 2;
-    unsigned char * iv = p;
-    unsigned char * tag = NULL;
-    size_t tag_len = 16;
+    unsigned char * iv = ch + 4 + 2;
     size_t iv_len = 12;
     s->ext.sech_inner_random = OPENSSL_malloc(OSSL_SECH2_INNER_RANDOM_LEN);
     unsigned char * key = s->ext.sech_session_key.data;
     size_t key_len = sizeof(s->ext.sech_session_key.data);
-    SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
     if(RAND_bytes_ex(sctx->libctx, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN, RAND_DRBG_STRENGTH) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
@@ -299,36 +299,54 @@ int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
-    else {
-      s->ext.sech_plain_text.ready = 1;
-      OPENSSL_assert(iv_len == sizeof(s->ext.sech_aead_nonce.data)); // iv_len is fixed in protocol (no negotiation))
-      memcpy(s->ext.sech_aead_nonce.data, iv, iv_len);
-      if((iv_len + s->ext.sech_cipher_text_len + tag_len) != (SSL3_RANDOM_SIZE + 32))
-      { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return 0; }
-
-      BIO_dump_fp(stderr, ch, written);
-      unsigned char * session_id = p + 32 + 1;
-      size_t first_part_len = SSL3_RANDOM_SIZE - OSSL_SECH2_AEAD_NONCE_LEN;
-      size_t second_part_len = 32 - OSSL_SECH2_AEAD_TAG_LEN;
-      memcpy(p, iv, iv_len);
-      memcpy(p+iv_len, s->ext.sech_cipher_text, first_part_len);
-      memcpy(session_id, s->ext.sech_cipher_text + first_part_len, second_part_len);
-      memcpy(session_id + 16, tag, 16);
-      memcpy(s->ext.sech_aead_tag.data, tag, 16);
-      memcpy(s->s3.client_random, p, 32);
-      memcpy(s->tmp_session_id, session_id, 32);
-      BIO_dump_fp(stderr, ch, written);
-      s->ext.sech_aead_tag.ready = 1;
-      s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch, written);
-      s->ext.sech_client_hello_transcript_for_confirmation_len = written;
-      OPENSSL_assert((written >> 24) == 0); // assert length fits in uint24
-      unsigned char * length_field = s->ext.sech_client_hello_transcript_for_confirmation + 1;
-      size_t len = written - 4;
-      length_field[0] = (len >> 16) & 0xFF; // Most significant byte
-      length_field[1] = (len >> 8) & 0xFF;  // Middle byte
-      length_field[2] = len & 0xFF;         // Least significant byte55);
-      OPENSSL_free(iv);
+    s->ext.sech_plain_text.ready = 1;
+    fprintf(stderr, "iv\n");
+    BIO_dump_fp(stderr, iv, iv_len);
+    fprintf(stderr, "ct client\n");
+    BIO_dump_fp(stderr, s->ext.sech_cipher_text, s->ext.sech_cipher_text_len);
+    fprintf(stderr, "tag client\n");
+    BIO_dump_fp(stderr, tag, tag_len);
+    // iv_len is fixed in protocol (no negotiation))
+    OPENSSL_assert(iv_len == sizeof(s->ext.sech_aead_nonce.data));
+    memcpy(s->ext.sech_aead_nonce.data, iv, iv_len);
+    s->ext.sech_aead_tag.ready = 1;
+    if((iv_len + s->ext.sech_cipher_text_len + tag_len)
+            != (SSL3_RANDOM_SIZE + 32)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
     }
+    memcpy(s->ext.sech_payload64.data, iv, iv_len);
+    memcpy(s->ext.sech_payload64.data + iv_len,
+            s->ext.sech_cipher_text, s->ext.sech_cipher_text_len);
+    memcpy(s->ext.sech_payload64.data + iv_len + s->ext.sech_cipher_text_len,
+            tag, tag_len);
+    s->ext.sech_payload64.ready = 1;
+    return 1;
+}
+
+int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
+    size_t written;
+    if(!WPACKET_get_total_written(pkt, &written)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    unsigned char * ch = WPACKET_get_curr(pkt) - written;
+    unsigned char * p = ch + 4 + 2;
+    unsigned char * session_id = p + 32 + 1;
+
+    memcpy(p, s->ext.sech_payload64.data, 32);
+    memcpy(session_id, s->ext.sech_payload64.data + 32, 32);
+    memcpy(s->tmp_session_id, session_id, 32);
+
+    s->ext.sech_client_hello_transcript_for_confirmation = OPENSSL_memdup(ch, written);
+    s->ext.sech_client_hello_transcript_for_confirmation_len = written;
+    OPENSSL_assert((written >> 24) == 0); // assert length fits in uint24
+    // TODO: use WPACKET_fill_lengths
+    unsigned char * length_field = s->ext.sech_client_hello_transcript_for_confirmation + 1;
+    size_t len = written - 4;
+    length_field[0] = (len >> 16) & 0xFF; // Most significant byte
+    length_field[1] = (len >> 8) & 0xFF;  // Middle byte
+    length_field[2] = len & 0xFF;         // Least significant byte55);
     return 1;
 }
 
@@ -418,6 +436,7 @@ int sech2_derive_session_key(SSL_CONNECTION *s)
         rv = 0;
         goto err;
     }
+    BIO_dump_fp(stderr, s->ext.sech_session_key.data, 32);
     s->ext.sech_session_key.ready = 1;
     rv = 1;
 err:

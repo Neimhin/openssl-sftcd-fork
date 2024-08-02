@@ -956,6 +956,7 @@ SSL *ossl_ssl_connection_new_int(SSL_CTX *ctx, const SSL_METHOD *method)
         s->ext.sech_inner_servername = OPENSSL_strdup(ptr);
         if(s->ext.sech_inner_servername == NULL) goto sslerr;
     }
+    s->ext.sech_payload64.ready = 0;
     s->ext.sech_plain_text.ready = 0;
     s->ext.sech_session_key.ready = 0;
     s->ext.sech_configs_len = ctx->ext.sech_configs_len;

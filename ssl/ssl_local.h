@@ -1246,6 +1246,11 @@ struct sech2_plain_text {
     unsigned char data[OSSL_SECH2_PLAIN_TEXT_LEN];
 };
 
+struct sech_payload64_st {
+    char ready;
+    unsigned char data[64];
+};
+
 struct sech2_aead_nonce {
     char ready;
     unsigned char data[OSSL_SECH2_AEAD_NONCE_LEN];
@@ -1651,6 +1656,7 @@ struct ssl_connection_st {
         unsigned char * sech_inner_random;
         unsigned char * sech_cipher_text;
         size_t sech_cipher_text_len;
+        struct sech_payload64_st sech_payload64;
         struct sech2_plain_text sech_plain_text;
         struct sech2_aead_nonce sech_aead_nonce;
         struct sech2_aead_tag sech_aead_tag;
