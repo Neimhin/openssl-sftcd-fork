@@ -1497,14 +1497,9 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
         const unsigned char * data = NULL;
         size_t len = 0;
         unsigned char * dest = NULL;
-        PACKET cheekypkt;
-        if (!PACKET_buf_init(&cheekypkt, s->init_msg, s->init_num)) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
 
-        data = PACKET_data(&cheekypkt); // TODO error handling
-        len = PACKET_remaining(&cheekypkt); // TODO error handling
+        data = PACKET_data(pkt); // TODO error handling
+        len = PACKET_remaining(pkt); // TODO error handling
         dest = OPENSSL_malloc(len + 4);
         if(dest == NULL) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
