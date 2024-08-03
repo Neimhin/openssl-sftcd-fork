@@ -8,6 +8,7 @@ ENDIF
 
 SOURCE[../libssl]=\
         pqueue.c \
+        ssl_sech.c \
         statem/statem_srvr.c statem/statem_clnt.c  s3_lib.c  s3_enc.c \
         statem/statem_lib.c statem/extensions.c statem/extensions_srvr.c \
         statem/extensions_clnt.c statem/extensions_cust.c s3_msg.c \
@@ -21,7 +22,6 @@ SOURCE[../libssl]=\
         statem/statem.c \
         ssl_cert_comp.c \
         ech.c ech_helpers.c \
-        ssl_sech.c \
         tls_depr.c
 
 # For shared builds we need to include the libcrypto packet.c and quic_vlint.c

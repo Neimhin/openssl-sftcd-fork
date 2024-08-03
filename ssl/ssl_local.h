@@ -2703,12 +2703,12 @@ __owur int ssl3_finish_mac(SSL_CONNECTION *s, const unsigned char *buf,
                            size_t len);
 void ssl3_free_digest_list(SSL_CONNECTION *s);
 
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
 __owur int sech2_init_finished_mac(SSL_CONNECTION *s);
 __owur int sech2_finish_mac(SSL_CONNECTION*s, const unsigned char*buf, size_t len);
 __owur int sech2_swap_finish_mac(SSL_CONNECTION*s);
 __owur void sech2_free_digest_list(SSL_CONNECTION*s);
-#endif//OPENSSL_NO_ECH
+#endif//OPENSSL_NO_SECH
 
 __owur unsigned long ssl3_output_cert_chain(SSL_CONNECTION *s, WPACKET *pkt,
                                             CERT_PKEY *cpk, int for_comp);

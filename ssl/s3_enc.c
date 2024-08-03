@@ -254,20 +254,6 @@ int sech2_swap_finish_mac(SSL_CONNECTION *s)
     return 1;
 }
 
-int sech2_init_finished_mac(SSL_CONNECTION *s)
-{
-    BIO *buf = BIO_new(BIO_s_mem());
-
-    if (buf == NULL) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_BIO_LIB);
-        return 0;
-    }
-    sech2_free_digest_list(s); // TODO
-    s->ext.sech_handshake_buffer = buf;
-    (void)BIO_set_close(s->ext.sech_handshake_buffer, BIO_CLOSE);
-    return 1;
-}
-
 /*
  * Free digest list. Also frees handshake buffer since they are always freed
  * together.
@@ -279,14 +265,6 @@ void ssl3_free_digest_list(SSL_CONNECTION *s)
     s->s3.handshake_buffer = NULL;
     EVP_MD_CTX_free(s->s3.handshake_dgst);
     s->s3.handshake_dgst = NULL;
-}
-
-void sech2_free_digest_list(SSL_CONNECTION *s)
-{
-    BIO_free(s->ext.sech_handshake_buffer);
-    s->ext.sech_handshake_buffer = NULL;
-    EVP_MD_CTX_free(s->ext.sech_handshake_dgst);
-    s->ext.sech_handshake_dgst = NULL;
 }
 
 int ssl3_finish_mac(SSL_CONNECTION *s, const unsigned char *buf, size_t len)
@@ -323,41 +301,6 @@ int ssl3_finish_mac(SSL_CONNECTION *s, const unsigned char *buf, size_t len)
     return 1;
 }
 
-int sech2_finish_mac(SSL_CONNECTION *s, const unsigned char *buf, size_t len)
-{
-    int ret;
-
-#ifndef OPENSSL_NO_ECH
-# ifdef OSSL_ECH_SUPERVERBOSE
-    OSSL_TRACE_BEGIN(TLS) {
-        BIO_printf(trc_out, "Updating transcript for s=%p\n", (void *)s);
-    } OSSL_TRACE_END(TLS);
-    ech_pbuf("Adding this to transcript", buf, len);
-# endif
-#endif
-
-    OPENSSL_assert(s->ext.sech_handshake_dgst || s->ext.sech_handshake_buffer);
-
-    if (s->ext.sech_handshake_dgst == NULL) {
-        /* Note: this writes to a memory BIO so a failure is a fatal error */
-        if (len > INT_MAX) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_R_OVERFLOW_ERROR);
-            return 0;
-        }
-        ret = BIO_write(s->ext.sech_handshake_buffer, (void *)buf, (int)len);
-        if (ret <= 0 || ret != (int)len) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            return 0;
-        }
-    } else {
-        ret = EVP_DigestUpdate(s->ext.sech_handshake_dgst, buf, len);
-        if (!ret) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            return 0;
-        }
-    }
-    return 1;
-}
 
 int ssl3_digest_cached_records(SSL_CONNECTION *s, int keep)
 {
