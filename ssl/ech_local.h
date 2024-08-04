@@ -505,9 +505,9 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt);
 int sech2_make_ClientHello2_server(SSL_CONNECTION *s, PACKET *pkt);
 int sech2_save_ClientHello2_client(SSL_CONNECTION *s, WPACKET * pkt);
 int sech2_make_ClientHelloInner(SSL_CONNECTION *s);
-int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len);
-int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt);
-int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s);
+int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len, int sech_version);
+int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt, int sech_version);
+int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s, int sech_version);
 int sech2_derive_session_key(SSL_CONNECTION *s);
 int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt);
 

@@ -92,6 +92,71 @@ void sech_debug_buffer(char*msg, const unsigned char*buf, size_t blen) {
 // #endif//SECH_DEBUG
 }
 
+/*
+ * @brief info about a KEM
+ * Used to store constants from Section 7.1 "Table 2 KEM IDs"
+ * and the bitmask for EC curves described in Section 7.1.3 DeriveKeyPair
+ */
+typedef struct {
+    uint16_t      kem_id; /* code point for key encipherment method */
+    const char    *keytype; /* string form of algtype "EC"/"X25519"/"X448" */
+    const char    *groupname; /* string form of EC group for NIST curves  */
+    const char    *mdname; /* hash alg name for the HKDF */
+    size_t        Nsecret; /* size of secrets */
+    size_t        Nenc; /* length of encapsulated key */
+    size_t        Npk; /* length of public key */
+    size_t        Nsk; /* length of raw private key */
+    uint8_t       bitmask;
+} OSSL_HPKE_KEM_INFO;
+
+/*
+ * @brief info about a KDF
+ */
+typedef struct {
+    uint16_t       kdf_id; /* code point for KDF */
+    const char     *mdname; /* hash alg name for the HKDF */
+    size_t         Nh; /* length of hash/extract output */
+} OSSL_HPKE_KDF_INFO;
+
+/*
+ * @brief info about an AEAD
+ */
+typedef struct {
+    uint16_t       aead_id; /* code point for aead alg */
+    const char     *name;   /* alg name */
+    size_t         taglen; /* aead tag len */
+    size_t         Nk; /* size of a key for this aead */
+    size_t         Nn; /* length of a nonce for this aead */
+} OSSL_HPKE_AEAD_INFO;
+struct ossl_hpke_ctx_st
+{
+    OSSL_LIB_CTX *libctx; /* library context */
+    char *propq; /* properties */
+    int mode; /* HPKE mode */
+    OSSL_HPKE_SUITE suite; /* suite */
+    const OSSL_HPKE_KEM_INFO *kem_info;
+    const OSSL_HPKE_KDF_INFO *kdf_info;
+    const OSSL_HPKE_AEAD_INFO *aead_info;
+    EVP_CIPHER *aead_ciph;
+    int role; /* sender(0) or receiver(1) */
+    uint64_t seq; /* aead sequence number */
+    unsigned char *shared_secret; /* KEM output, zz */
+    size_t shared_secretlen;
+    unsigned char *key; /* final aead key */
+    size_t keylen;
+    unsigned char *nonce; /* aead base nonce */
+    size_t noncelen;
+    unsigned char *exportersec; /* exporter secret */
+    size_t exporterseclen;
+    char *pskid; /* PSK stuff */
+    unsigned char *psk;
+    size_t psklen;
+    EVP_PKEY *authpriv; /* sender's authentication private key */
+    unsigned char *authpub; /* auth public key */
+    size_t authpublen;
+    unsigned char *ikme; /* IKM for sender deterministic key gen */
+    size_t ikmelen;
+};
 
 /*
  * The enc and payload are allocated here and must be freed by the caller
@@ -139,6 +204,8 @@ int sech5_hpke_enc(SSL *s,
     subrv = OSSL_HPKE_encap(
             hpke_ctx, mypub, &mypub_len,
             in.pub, in.pub_len, in.info, in.info_len);
+    sech_debug_buffer("shared secret client", hpke_ctx->shared_secret, hpke_ctx->shared_secretlen);
+    fprintf(stderr, "seq client%llu\n", hpke_ctx->seq);
     if(!subrv) {
         rv = 0;
         goto end;
@@ -149,6 +216,7 @@ int sech5_hpke_enc(SSL *s,
         rv = 0;
         goto end;
     }
+    sech_debug_buffer("aad client", in.aad, in.aad_len);
     subrv = OSSL_HPKE_seal(hpke_ctx,
             cipher, &cipher_len,
             in.aad, in.aad_len,
@@ -350,7 +418,7 @@ int sech2_edit_client_hello(SSL_CONNECTION *s, WPACKET *pkt) {
     return 1;
 }
 
-int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
+int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt, int sech_version)
 {
     size_t written;
     if(!WPACKET_get_total_written(pkt, &written)) {
@@ -363,7 +431,8 @@ int sech2_make_ClientHelloOuterContext_client(SSL_CONNECTION *s, WPACKET *pkt)
     ch[1] = (len >> 16) & 0xFF;
     ch[2] = (len >> 8) & 0xFF;
     ch[3] = len & 0xFF;
-    return sech2_make_ClientHelloOuterContext(s, ch, written, session_id_len);
+    int rv = sech2_make_ClientHelloOuterContext(s, ch, written, session_id_len, sech_version);
+    sech_debug_buffer("ch client", ch, written);
 }
 
 int sech2_make_ClientHello2_client(SSL_CONNECTION *s, WPACKET *pkt)
@@ -445,15 +514,15 @@ err:
     return rv;
 }
 
-int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s)
+int sech2_make_ClientHelloOuterContext_server(SSL_CONNECTION *s, int sech_version)
 {
     size_t written = s->ext.sech_client_hello_transcript_for_confirmation_len;
     unsigned char * ch = s->ext.sech_client_hello_transcript_for_confirmation;
     const size_t session_id_len = s->tmp_session_id_len;
-    return sech2_make_ClientHelloOuterContext(s, ch, written, session_id_len);
+    return sech2_make_ClientHelloOuterContext(s, ch, written, session_id_len, sech_version);
 }
 
-int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len) 
+int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, size_t ch_len, size_t session_id_len, int sech_version) 
 {
     OPENSSL_assert(session_id_len == 32);
     OPENSSL_assert(ch);
@@ -470,10 +539,18 @@ int sech2_make_ClientHelloOuterContext(SSL_CONNECTION *s, unsigned char * ch, si
     { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return 0; }
     s->ext.sech_ClientHelloOuterContext_len = len; 
 
+    if(sech_version == 2)
     {
         void * random = s->ext.sech_ClientHelloOuterContext + header_length + version_length + OSSL_SECH2_AEAD_NONCE_LEN;
         char val = 0;
         char len = SSL3_RANDOM_SIZE - OSSL_SECH2_AEAD_NONCE_LEN; 
+        // replace sech cipher text and tag with 0s
+        memset(random, val, len);
+    }
+    else if (sech_version == 5){
+        void * random = s->ext.sech_ClientHelloOuterContext + header_length + version_length;
+        char val = 0;
+        char len = SSL3_RANDOM_SIZE; 
         // replace sech cipher text and tag with 0s
         memset(random, val, len);
     }
@@ -536,7 +613,7 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
                 s->ext.ech.ch_depth != OSSL_ECH_OUTER_CH_TYPE)
                 return 1;
             if(s->ext.sech_hrr == NULL) {
-                sech2_make_ClientHelloOuterContext_client(s, pkt);
+                sech2_make_ClientHelloOuterContext_client(s, pkt, 2);
                 sech2_derive_session_key(s);
                 fprintf(stderr, "ClientHelloOuterContext client\n");
                 BIO_dump_fp(stderr,
@@ -564,7 +641,7 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
             if(s->ext.sech_configs == NULL)
                 return 1;
             if(s->ext.sech_hrr == NULL) {
-                sech2_make_ClientHelloOuterContext_client(s, pkt);
+                sech2_make_ClientHelloOuterContext_client(s, pkt, 5);
                 ECHConfig * sechcfg = s->ext.sech_configs->cfg->recs;
                 OSSL_HPKE_SUITE hpke_suite = OSSL_HPKE_SUITE_DEFAULT;
                 hpke_suite.kem_id = sechcfg->kem_id;
@@ -596,6 +673,7 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
                     memcpy(s->ext.sech_payload64.data, hpke_out.enc, hpke_out.enc_len);
                     memcpy(s->ext.sech_payload64.data+hpke_out.enc_len, hpke_out.ciphertext, hpke_out.ciphertext_len);
                     s->ext.sech_payload64.ready = 1;
+                    sech2_edit_client_hello(s, pkt);
                 }
 
                 return 1;

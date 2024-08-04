@@ -1803,6 +1803,72 @@ MSG_PROCESS_RETURN tls_process_client_hello(SSL_CONNECTION *s, PACKET *pkt)
 
     return MSG_PROCESS_ERROR;
 }
+/*
+ * @brief info about a KEM
+ * Used to store constants from Section 7.1 "Table 2 KEM IDs"
+ * and the bitmask for EC curves described in Section 7.1.3 DeriveKeyPair
+ */
+typedef struct {
+    uint16_t      kem_id; /* code point for key encipherment method */
+    const char    *keytype; /* string form of algtype "EC"/"X25519"/"X448" */
+    const char    *groupname; /* string form of EC group for NIST curves  */
+    const char    *mdname; /* hash alg name for the HKDF */
+    size_t        Nsecret; /* size of secrets */
+    size_t        Nenc; /* length of encapsulated key */
+    size_t        Npk; /* length of public key */
+    size_t        Nsk; /* length of raw private key */
+    uint8_t       bitmask;
+} OSSL_HPKE_KEM_INFO;
+
+/*
+ * @brief info about a KDF
+ */
+typedef struct {
+    uint16_t       kdf_id; /* code point for KDF */
+    const char     *mdname; /* hash alg name for the HKDF */
+    size_t         Nh; /* length of hash/extract output */
+} OSSL_HPKE_KDF_INFO;
+
+/*
+ * @brief info about an AEAD
+ */
+typedef struct {
+    uint16_t       aead_id; /* code point for aead alg */
+    const char     *name;   /* alg name */
+    size_t         taglen; /* aead tag len */
+    size_t         Nk; /* size of a key for this aead */
+    size_t         Nn; /* length of a nonce for this aead */
+} OSSL_HPKE_AEAD_INFO;
+struct ossl_hpke_ctx_st
+{
+    OSSL_LIB_CTX *libctx; /* library context */
+    char *propq; /* properties */
+    int mode; /* HPKE mode */
+    OSSL_HPKE_SUITE suite; /* suite */
+    const OSSL_HPKE_KEM_INFO *kem_info;
+    const OSSL_HPKE_KDF_INFO *kdf_info;
+    const OSSL_HPKE_AEAD_INFO *aead_info;
+    EVP_CIPHER *aead_ciph;
+    int role; /* sender(0) or receiver(1) */
+    uint64_t seq; /* aead sequence number */
+    unsigned char *shared_secret; /* KEM output, zz */
+    size_t shared_secretlen;
+    unsigned char *key; /* final aead key */
+    size_t keylen;
+    unsigned char *nonce; /* aead base nonce */
+    size_t noncelen;
+    unsigned char *exportersec; /* exporter secret */
+    size_t exporterseclen;
+    char *pskid; /* PSK stuff */
+    unsigned char *psk;
+    size_t psklen;
+    EVP_PKEY *authpriv; /* sender's authentication private key */
+    unsigned char *authpub; /* auth public key */
+    size_t authpublen;
+    unsigned char *ikme; /* IKM for sender deterministic key gen */
+    size_t ikmelen;
+};
+
 
 static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
 {
@@ -2017,7 +2083,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                 s->ext.sech_hrr == NULL) {
             fprintf(stderr, "sech session id server:\n");
             BIO_dump_fp(stderr, s->tmp_session_id, s->tmp_session_id_len);
-            if(!sech2_make_ClientHelloOuterContext_server(s)) {
+            if(!sech2_make_ClientHelloOuterContext_server(s, 2)) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return 0;
             }
@@ -2100,10 +2166,10 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
         }
         else if (s->server &&
                 s->ext.sech_configs) {
-            // if(!sech2_make_ClientHelloOuterContext_server(s)) {
-            //     SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            //     return 0;
-            // }
+            if(!sech2_make_ClientHelloOuterContext_server(s, 5)) {
+                SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                return 0;
+            }
             ECHConfig * sechcfg = s->ext.sech_configs->cfg->recs;
             int hpke_mode = OSSL_HPKE_MODE_BASE;
             OSSL_HPKE_SUITE hpke_suite = OSSL_HPKE_SUITE_DEFAULT;
@@ -2112,11 +2178,10 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
             size_t info_len = sizeof("sech5");
             unsigned char * theirpub;
             size_t theirpub_len = 32;
-            theirpub =  s->init_buf->data + 3 + 2;
+            theirpub =  s->init_buf->data + 4 + 2;
 
             hpke_suite.kem_id = sechcfg->kem_id;
             theirpub_len = OSSL_HPKE_get_public_encap_size(hpke_suite);
-            theirpub = OPENSSL_malloc(theirpub_len);
             if(theirpub == NULL) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 goto err;                
@@ -2128,6 +2193,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 goto err;                
             }
+            sech_debug_buffer("enc server", theirpub, theirpub_len);
 
             if(OSSL_HPKE_decap(
                 hpke_ctx, theirpub, theirpub_len,
@@ -2136,14 +2202,23 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                 fprintf(stderr, "decap SUCCESS\n");
                 unsigned char clear[17] = {0};
                 size_t clearlen = 16;
-                unsigned char * aad = NULL;
-                size_t aad_len = 0;
+                unsigned char * aad = s->ext.sech_ClientHelloOuterContext;
+                size_t aad_len = s->ext.sech_ClientHelloOuterContext_len;
                 unsigned char * cipher = theirpub + 33;
                 size_t cipher_len = 32;
-                OSSL_HPKE_open(hpke_ctx, clear,
+                sech_debug_buffer("hpke cipher server", cipher, cipher_len);
+                sech_debug_buffer("shared secret server", hpke_ctx->shared_secret, hpke_ctx->shared_secretlen);
+                fprintf(stderr, "seq server %llu\n", hpke_ctx->seq);
+                sech_debug_buffer("aad server", aad, aad_len);
+                if(OSSL_HPKE_open(hpke_ctx, clear,
                         &clearlen,
                         aad, aad_len,
-                        cipher, cipher_len);
+                        cipher, cipher_len) == 1) {
+                    fprintf(stderr, "hpke open SUCCESS\n");
+                }
+                else {
+                    fprintf(stderr, "hpke open FAILURE\n");
+                }
             }
             else { 
                 fprintf(stderr, "decap FAILURE\n");
