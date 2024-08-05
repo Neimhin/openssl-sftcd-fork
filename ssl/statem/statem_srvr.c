@@ -2215,6 +2215,11 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                         aad, aad_len,
                         cipher, cipher_len) == 1) {
                     fprintf(stderr, "hpke open SUCCESS\n");
+                    unsigned char servername[17] = {0};
+                    memcpy(servername, clear, clearlen);
+                    s->ext.sech_peer_inner_servername = OPENSSL_strdup(servername);
+                    sech2_init_finished_mac(s);
+                    sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                 }
                 else {
                     fprintf(stderr, "hpke open FAILURE\n");
