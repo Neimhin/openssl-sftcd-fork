@@ -2222,6 +2222,7 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                     memcpy(servername, clear, clearlen);
                     memcpy(s->ext.sech_plain_text.data, servername, 16);
                     s->ext.sech_peer_inner_servername = OPENSSL_strdup(servername);
+                    sech_debug_buffer("strdup", servername, 17);
                     // TODO: make_ClientHelloInner
                     sech5_make_ClientHelloInner(s);
                     sech_debug_buffer("CHI server", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);

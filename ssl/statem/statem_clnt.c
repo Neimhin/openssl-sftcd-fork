@@ -1835,7 +1835,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
 
     if((s->ext.sech_version == 2 || s->ext.sech_version == 5) && !hrr)
     {
-        char mt_header[4] = {2,0,0,shlen};
+        char mt_header[4] = {2,0,0,shlen}; // TODO handle shlen longer than 255
         sech2_finish_mac(s, mt_header, 4);
         sech2_finish_mac(s, shbuf, shlen);
     }
@@ -2146,7 +2146,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
     if(s->ext.sech_version == 5) {
         // TODO: read and verify accept confirmation
         s->ext.sech_dgst_swap_ready = 1;
-        // s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
+        s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
     }
 #endif//OPENSSL_NO_SECH
 

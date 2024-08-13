@@ -702,14 +702,6 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
                 }
 
                 return 1;
-
-                // OSSL_HPKE_CTX * ehctx = OSSL_HPKE_CTX_new(
-                //         OSSL_HPKE_MODE_BASE,
-                //         hpke_suite,
-                //         OSSL_HPKE_ROLE_RECEIVER,
-                //         NULL, NULL);
-
-                // 
             }
             return 0;
         default:

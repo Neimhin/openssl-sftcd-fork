@@ -1648,8 +1648,8 @@ void ossl_ssl_connection_free(SSL *ssl)
     s->ext.sech_symmetric_key = NULL;
     OPENSSL_free(s->ext.sech_inner_servername);
     s->ext.sech_inner_servername = NULL;
-    OPENSSL_free(s->ext.sech_peer_inner_servername);
-    s->ext.sech_peer_inner_servername = NULL;
+    // OPENSSL_free(s->ext.sech_peer_inner_servername); // TODO: why does freeing this cause memory corruption?
+    // s->ext.sech_peer_inner_servername = NULL;
     OPENSSL_free(s->ext.sech_client_hello_transcript_for_confirmation);
     s->ext.sech_client_hello_transcript_for_confirmation = NULL;
     OPENSSL_free(s->ext.sech_inner_random);
