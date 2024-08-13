@@ -3706,7 +3706,7 @@ int sech2_calc_confirm(
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    memset(shbuf_zeroed + 4 + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 8); // replace acceptance signal location with 0s
+    memset(shbuf_zeroed + 4 + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 24); // replace acceptance signal location with 0s
     if (sech2_make_transcript_buffer(
                 s,
                 shbuf_zeroed,
@@ -3763,7 +3763,7 @@ err:
     fprintf(stderr, "transcript hash: %i\n", s->server);
     BIO_dump_fp(stderr, sech_transcript_hash, 48);
     fprintf(stderr, "acbuf: %i\n", s->server);
-    BIO_dump_fp(stderr, acbuf, 8);
+    BIO_dump_fp(stderr, acbuf, 24);
 
     EVP_MD_CTX_free(ctx);
     OPENSSL_free(tbuf);
@@ -3855,7 +3855,7 @@ int ssl_sech2_calc_accept_confirmation_functional(
                 expansion_label, labellen,  // const unsigned char *label, size_t labellen,
                 sech_transcript_hash, hashlen,                        // const unsigned char *data, size_t datalen,
                 accept_confirmation_out,                                   // unsigned char *out,
-                8,                                       // size_t outlen,
+                24,                                       // size_t outlen,
                 1                                        // int fatal
                 )) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);

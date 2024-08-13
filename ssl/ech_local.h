@@ -454,7 +454,7 @@ int ech_same_key_share(void);
  *                        "ech accept confirmation",
  *                        ClientHelloInner...ServerHelloECHConf)
  */
-# define SECH2_ACCEPT_CONFIRMATION_OFFSET CLIENT_VERSION_LEN /* 2 */ + SSL3_RANDOM_SIZE /* 32 */ - 8
+# define SECH2_ACCEPT_CONFIRMATION_OFFSET CLIENT_VERSION_LEN
 
 void sech_debug_buffer(char*msg, const unsigned char*buf, size_t blen);
 int sech_helper_encrypt(

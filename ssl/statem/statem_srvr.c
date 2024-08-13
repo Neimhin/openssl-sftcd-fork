@@ -2931,7 +2931,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
     {
         unsigned char * server_hello_buf = NULL;  // TODO: this code is unnecessarily duplicated for ECH
         size_t server_hello_buf_len = 0;
-        unsigned char sech_acbuf[8] = {0};
+        unsigned char sech_acbuf[24] = {0};
         unsigned char * shbuf;
         EVP_MD * md;
 
@@ -2962,7 +2962,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             return CON_FUNC_ERROR;
         }
         OPENSSL_free(shbuf);
-        memcpy(server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET + 4, sech_acbuf, 8);
+        memcpy(server_hello_buf + SECH2_ACCEPT_CONFIRMATION_OFFSET + 4, sech_acbuf, 24);
     }
     /*
      * Calculate the ECH-accept server random to indicate that

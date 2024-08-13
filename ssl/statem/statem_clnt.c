@@ -2112,7 +2112,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
           return 0;
       }
-      unsigned char acbuf[8];
+      unsigned char acbuf[24];
       unsigned char * shbufh = OPENSSL_malloc(shlen + 4);
       size_t shbufhlen = shlen + 4;
       {
@@ -2138,7 +2138,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           goto err;
       }
 
-      if(memcmp(shbuf + 2 + SSL3_RANDOM_SIZE - 8, acbuf, 8) == 0) {
+      if(memcmp(shbuf + 2, acbuf, 24) == 0) {
           s->ext.sech_dgst_swap_ready = 1;
           s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
       }
