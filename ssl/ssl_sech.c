@@ -242,7 +242,7 @@ int SSL_get_sech_status(SSL * ssl, char **inner_sni, char **outer_sni)
         if(s->hello_retry_request != SSL_HRR_NONE) {
             return SSL_SECH_STATUS_ABANDONDED_HRR;
         }
-        *inner_sni = s->ext.sech_peer_inner_servername; // TODO should copy
+        *inner_sni = OPENSSL_strdup(s->ext.sech_peer_inner_servername); // TODO should copy
         // TODO get outer SNI
         return SSL_SECH_STATUS_SUCCESS;
     }
