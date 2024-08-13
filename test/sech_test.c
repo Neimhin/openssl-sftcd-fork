@@ -997,8 +997,8 @@ static const inline struct hpke_roundtrip_opt default_hpke_opt()
         .force_hrr = 0,
         .sech_key_file = "echconfig.pem",
         .expect = {
-            .client_status = SSL_SECH_STATUS_ABANDONDED_HRR,
-            .server_status = SSL_SECH_STATUS_ABANDONDED_HRR,
+            .client_status = SSL_SECH_STATUS_SUCCESS,
+            .server_status = SSL_SECH_STATUS_SUCCESS,
         }
     };
     return opt;
@@ -1055,7 +1055,7 @@ static int sech_hpke_roundtrip(int idx, struct hpke_roundtrip_opt opt)
     if (verbose)
         TEST_info("%s: server status %d, %s, %s",
                   __func__, serverstatus, sinner, souter);
-    if (!TEST_int_eq(serverstatus, SSL_SECH_STATUS_SUCCESS))
+    if (!TEST_int_eq(serverstatus, opt.expect.server_status))
         goto end;
     /* override cert verification */
     SSL_set_verify_result(clientssl, X509_V_OK);
@@ -1063,7 +1063,7 @@ static int sech_hpke_roundtrip(int idx, struct hpke_roundtrip_opt opt)
     if (verbose)
         TEST_info("%s: client status %d, %s, %s",
                   __func__, clientstatus, cinner, couter);
-    if (!TEST_int_eq(clientstatus, SSL_SECH_STATUS_SUCCESS))
+    if (!TEST_int_eq(clientstatus, opt.expect.client_status))
         goto end;
     /* all good */
     res = 1;
@@ -1091,6 +1091,8 @@ static int test_sech_hpke_should_fail_if_hrr_is_triggered(int idx)
 {
     struct hpke_roundtrip_opt opt = default_hpke_opt();
     opt.force_hrr = 1;
+    opt.expect.client_status = SSL_SECH_STATUS_ABANDONDED_HRR;
+    opt.expect.server_status = SSL_SECH_STATUS_ABANDONDED_HRR;
     return sech_hpke_roundtrip(idx, opt);
 }
 
