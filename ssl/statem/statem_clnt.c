@@ -1833,7 +1833,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         }
     }
 
-    if(s->ext.sech_version == 2 && !hrr)
+    if((s->ext.sech_version == 2 || s->ext.sech_version == 5) && !hrr)
     {
         char mt_header[4] = {2,0,0,shlen};
         sech2_finish_mac(s, mt_header, 4);
@@ -2102,7 +2102,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         goto err;
     }
 
-#ifndef OPENSSL_NO_ECH
+#ifndef OPENSSL_NO_SECH
     if(s->ext.sech_version == 2) {
       const SSL_CIPHER * c = s->s3.tmp.new_cipher;
       EVP_MD * md = NULL;
@@ -2143,7 +2143,12 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
           s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
       }
     }
-#endif//OPENSSL_NO_ECH
+    if(s->ext.sech_version == 5) {
+        // TODO: read and verify accept confirmation
+        s->ext.sech_dgst_swap_ready = 1;
+        // s->ext.sech_peer_inner_servername = OPENSSL_strdup(s->ext.sech_inner_servername);
+    }
+#endif//OPENSSL_NO_SECH
 
 #ifdef OPENSSL_NO_COMP
     if (compression != 0) {

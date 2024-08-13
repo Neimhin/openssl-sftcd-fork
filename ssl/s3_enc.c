@@ -236,24 +236,6 @@ int ssl3_init_finished_mac(SSL_CONNECTION *s)
     return 1;
 }
 
-int sech2_swap_finish_mac(SSL_CONNECTION *s)
-{
-    ssl3_free_digest_list(s);
-    s->s3.handshake_buffer = s->ext.sech_handshake_buffer;
-    s->s3.handshake_dgst = s->ext.sech_handshake_dgst;
-    s->ext.sech_handshake_buffer = NULL;
-    s->ext.sech_handshake_dgst = NULL;
-#ifdef SECH_DEBUG
-    OPENSSL_free(s->ext.normal_transcript_full);
-    s->ext.normal_transcript_full = s->ext.sech_transcript_full;
-    s->ext.normal_transcript_full_len = s->ext.sech_transcript_full_len;
-    s->ext.sech_transcript_full = NULL;
-    s->ext.sech_transcript_full_len = 0;
-#endif
-    
-    return 1;
-}
-
 /*
  * Free digest list. Also frees handshake buffer since they are always freed
  * together.
