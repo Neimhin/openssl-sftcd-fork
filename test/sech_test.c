@@ -988,6 +988,7 @@ struct hpke_roundtrip_expect {
 struct hpke_roundtrip_opt {
     char force_hrr;
     char * sech_key_file;
+    char * client_ECHConfig;
     struct hpke_roundtrip_expect expect;
 };
 
@@ -996,6 +997,7 @@ static const inline struct hpke_roundtrip_opt default_hpke_opt()
     struct hpke_roundtrip_opt opt = {
         .force_hrr = 0,
         .sech_key_file = "echconfig.pem",
+        .client_ECHConfig = "echconfig.pem",
         .expect = {
             .client_status = SSL_SECH_STATUS_SUCCESS,
             .server_status = SSL_SECH_STATUS_SUCCESS,
@@ -1016,6 +1018,17 @@ static int sech_hpke_roundtrip(int idx, struct hpke_roundtrip_opt opt)
     int clientstatus, serverstatus;
     char *cinner = NULL, *couter = NULL, *sinner = NULL, *souter = NULL;
     char * inner_servername = "inner.com";
+    char * client_ECHConfig_file = NULL;
+    char * client_echconfig = NULL;
+    size_t client_echconfig_len = 0;
+    X509_STORE *vfy = NULL;
+
+    /* for these tests we want to chain to our root */
+    vfy = X509_STORE_new();
+    if (vfy == NULL)
+        goto end;
+    if (rootcert != NULL && !X509_STORE_load_file(vfy, rootcert))
+        goto end;
 
     /* read our pre-cooked ECH PEM file */
     echkeyfile = test_mk_file_path(certsdir, opt.sech_key_file);
@@ -1025,18 +1038,29 @@ static int sech_hpke_roundtrip(int idx, struct hpke_roundtrip_opt opt)
     if (!TEST_ptr(echconfig))
         goto end;
     echconfiglen = strlen(echconfig);
+
+    client_ECHConfig_file = test_mk_file_path(certsdir, opt.client_ECHConfig);
+    fprintf(stderr, "%s\n", client_ECHConfig_file);
+    client_echconfig = echconfiglist_from_PEM(client_ECHConfig_file);
+    client_echconfig_len = strlen(client_echconfig);
+
     if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
                                        TLS_client_method(),
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, cert, privkey)))
         goto end;
+
+    SSL_CTX_set1_verify_cert_store(cctx, vfy);
+    SSL_CTX_set_verify(cctx, SSL_VERIFY_PEER, NULL);
+
     SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
     if (!TEST_true(SSL_CTX_set_sech_version(cctx, 5)))
         goto end;
     if (!TEST_true(SSL_CTX_set_sech_version(sctx, 5)))
         goto end;
-    if (!TEST_true(SSL_CTX_sech_set1_sechconfig(cctx, (unsigned char *)echconfig,
-                                              echconfiglen)))
+    if (!TEST_true(SSL_CTX_sech_set1_sechconfig(cctx,
+                    (unsigned char *)client_echconfig,
+                    client_echconfig_len)))
         goto end;
     if (!TEST_true(SSL_CTX_sech_server_enable_file(sctx, echkeyfile,
                                                   SSL_ECH_USE_FOR_RETRY)))
@@ -1074,6 +1098,7 @@ end:
     OPENSSL_free(couter);
     OPENSSL_free(echkeyfile);
     OPENSSL_free(echconfig);
+    OPENSSL_free(client_echconfig);
     SSL_free(clientssl);
     SSL_free(serverssl);
     SSL_CTX_free(cctx);
@@ -1084,6 +1109,15 @@ end:
 static int test_sech_hpke_roundtrip_accept(int idx)
 {
     struct hpke_roundtrip_opt opt = default_hpke_opt();
+    return sech_hpke_roundtrip(idx, opt);
+}
+
+static int test_sech_hpke_roundtrip_wrong_config_reject(int idx)
+{
+    struct hpke_roundtrip_opt opt = default_hpke_opt();
+    opt.client_ECHConfig = "echconfig-corrupt.pem";
+    opt.expect.client_status = SSL_SECH_STATUS_FAILED;
+    opt.expect.server_status = SSL_SECH_STATUS_FAILED;
     return sech_hpke_roundtrip(idx, opt);
 }
 
@@ -1147,6 +1181,7 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_tls13_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_sech_hpke_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech_hpke_should_fail_if_hrr_is_triggered, 2);
+    ADD_ALL_TESTS(test_sech_hpke_roundtrip_wrong_config_reject, 2);
     return 1;
 err:
     return 0;
