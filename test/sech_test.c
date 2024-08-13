@@ -755,10 +755,12 @@ static int test_sech2_roundtrip_reject(int idx)
     return sech2_roundtrip(idx, opt);
 }
 
-static int test_sech2_roundtrip_hrr_accept(int idx)
+static int test_sech2_roundtrip_hrr_abandon(int idx)
 {
     struct sech_roundtrip_opt opt = default_opt();
     opt.force_hrr = 1;
+    opt.expect.client_status = SSL_SECH_STATUS_ABANDONDED_HRR;
+    opt.expect.server_status = SSL_SECH_STATUS_ABANDONDED_HRR;
     return sech2_roundtrip(idx, opt);
 }
 
@@ -978,8 +980,32 @@ static int sech2_roundtrip_wrong_key(int idx)
     return 1;
 }
 
-/* Test a basic roundtrip with ECH, with a PEM file input */
-static int test_sech_hpke_roundtrip(int idx)
+
+struct hpke_roundtrip_expect {
+    int client_status;
+    int server_status;
+};
+struct hpke_roundtrip_opt {
+    char force_hrr;
+    char * sech_key_file;
+    struct hpke_roundtrip_expect expect;
+};
+
+static const inline struct hpke_roundtrip_opt default_hpke_opt()
+{
+    struct hpke_roundtrip_opt opt = {
+        .force_hrr = 0,
+        .sech_key_file = "echconfig.pem",
+        .expect = {
+            .client_status = SSL_SECH_STATUS_ABANDONDED_HRR,
+            .server_status = SSL_SECH_STATUS_ABANDONDED_HRR,
+        }
+    };
+    return opt;
+}
+
+/* Test a basic SECH 3 roundtrip, with a PEM file input */
+static int sech_hpke_roundtrip(int idx, struct hpke_roundtrip_opt opt)
 {
     int res = 0;
     char *echkeyfile = NULL;
@@ -992,7 +1018,7 @@ static int test_sech_hpke_roundtrip(int idx)
     char * inner_servername = "inner.com";
 
     /* read our pre-cooked ECH PEM file */
-    echkeyfile = test_mk_file_path(certsdir, "echconfig.pem");
+    echkeyfile = test_mk_file_path(certsdir, opt.sech_key_file);
     if (!TEST_ptr(echkeyfile))
         goto end;
     echconfig = echconfiglist_from_PEM(echkeyfile);
@@ -1018,6 +1044,8 @@ static int test_sech_hpke_roundtrip(int idx)
     if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl,
                                       &clientssl, NULL, NULL)))
         goto end;
+    if (opt.force_hrr && !TEST_true(SSL_set1_groups_list(serverssl, "P-384")))
+        return 0;
     if (!TEST_true(SSL_set_tlsext_host_name(clientssl, "server.example")))
         goto end;
     if (!TEST_true(create_ssl_connection(serverssl, clientssl,
@@ -1051,6 +1079,19 @@ end:
     SSL_CTX_free(cctx);
     SSL_CTX_free(sctx);
     return res;
+}
+
+static int test_sech_hpke_roundtrip_accept(int idx)
+{
+    struct hpke_roundtrip_opt opt = default_hpke_opt();
+    return sech_hpke_roundtrip(idx, opt);
+}
+
+static int test_sech_hpke_should_fail_if_hrr_is_triggered(int idx)
+{
+    struct hpke_roundtrip_opt opt = default_hpke_opt();
+    opt.force_hrr = 1;
+    return sech_hpke_roundtrip(idx, opt);
 }
 
 #endif
@@ -1096,13 +1137,14 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_sech2_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_accept_no_outer_sni, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_reject, 2);
-    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_accept, 2);
+    ADD_ALL_TESTS(test_sech2_roundtrip_hrr_abandon, 2);
     ADD_ALL_TESTS(sech2_roundtrip_accept, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_hrr_reject, 2);
     ADD_ALL_TESTS(test_sech2_api_no_key, 2);
     ADD_ALL_TESTS(test_sech2_roundtrip_accept_and_resume_with_ticket, 2);
     ADD_ALL_TESTS(test_tls13_roundtrip_accept_and_resume_with_ticket, 2);
-    ADD_ALL_TESTS(test_sech_hpke_roundtrip, 2);
+    ADD_ALL_TESTS(test_sech_hpke_roundtrip_accept, 2);
+    ADD_ALL_TESTS(test_sech_hpke_should_fail_if_hrr_is_triggered, 2);
     return 1;
 err:
     return 0;

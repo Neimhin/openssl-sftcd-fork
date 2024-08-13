@@ -3,8 +3,20 @@
 # define OPENSSL_SECH_H
 # pragma once
 #ifndef OPENSSL_NO_ECH
-#  define SSL_SECH_STATUS_SUCCESS   1 /* tried and succeeded with stealthy ECH, either on server or client */
-#  define SSL_SECH_STATUS_FAILED    0 /* generic failure of attempted SECH, either on server or client */
+
+/* generic failure of attempted SECH, either on server or client */
+#  define SSL_SECH_STATUS_FAILED    0
+
+/* tried and succeeded with stealthy ECH, either on server or client */
+#  define SSL_SECH_STATUS_SUCCESS   1
+
+/* did not attempt to offer/accept SECH */
+#  define SSL_SECH_NOT_ATTEMPTED   2
+
+/* SECH was offered but abandoned because HRR was needed, continued
+ * normal TLS 1.3 handshake as cover */
+#  define SSL_SECH_STATUS_ABANDONDED_HRR   3
+
 # include <openssl/ssl.h>
 int SSL_CTX_set_sech_inner_servername(SSL_CTX *ctx, char* inner_servername, int inner_servername_len);
 int SSL_CTX_set_sech_symmetric_key(SSL_CTX *ctx, const char * key, size_t key_len);

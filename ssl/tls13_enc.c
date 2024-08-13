@@ -650,8 +650,8 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
         fprintf(stderr, "client swap finish mac?\n");
     }
     if(s->ext.sech_dgst_swap_ready &&
-            ((s->server && s->hello_retry_request != SSL_HRR_PENDING) ||
-            (!s->server /* TODO client logic */))) {
+            ((s->server && s->hello_retry_request == SSL_HRR_NONE) ||
+            (!s->server && s->hello_retry_request == SSL_HRR_NONE))) {
         fprintf(stderr, "swapping finish mac [server==%i] [hrr==%i]\n", s->server, s->hello_retry_request);
         sech2_swap_finish_mac(s);
     }
