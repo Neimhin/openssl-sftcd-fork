@@ -27,6 +27,7 @@ struct sech5_hpke_enc_out {
 int sech5_hpke_enc(SSL *s,
         const struct sech5_hpke_enc_in in,
         struct sech5_hpke_enc_out * out);
+int sech5_make_ClientHelloInner(SSL_CONNECTION *s);
 
 # endif//HEADER_SECH_LOCAL_H
 #endif//OPENSSL_NO_SECH

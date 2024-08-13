@@ -606,6 +606,27 @@ int sech2_make_ClientHelloInner(SSL_CONNECTION *s)
     return 1;
 }
 
+int sech5_make_ClientHelloInner(SSL_CONNECTION *s)
+{
+    static size_t version_length = 2;
+    static size_t header_length = 4;
+    unsigned char * ch = s->ext.sech_client_hello_transcript_for_confirmation;
+    size_t len = s->ext.sech_client_hello_transcript_for_confirmation_len;
+    OPENSSL_assert(s->ext.sech_client_hello_transcript_for_confirmation);
+    s->ext.sech_ClientHelloInner = OPENSSL_memdup(ch, len);
+    if(s->ext.sech_ClientHelloInner == NULL)
+    { SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); return 0; }
+    s->ext.sech_ClientHelloInner_len = s->ext.sech_ClientHelloOuterContext_len;
+
+    char cover1_len = 16;
+    {
+        void * cover1_start = s->ext.sech_ClientHelloInner + header_length + version_length + SSL3_RANDOM_SIZE + 1;
+        memcpy(cover1_start, s->ext.sech_plain_text.data, cover1_len);
+    }
+    // TODO: set SNI to all 0s
+    return 1;
+}
+
 int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
     switch(s->ext.sech_version) {
         case 2:
@@ -674,6 +695,10 @@ int sech2_client(SSL_CONNECTION * s, WPACKET * pkt) {
                     memcpy(s->ext.sech_payload64.data+hpke_out.enc_len, hpke_out.ciphertext, hpke_out.ciphertext_len);
                     s->ext.sech_payload64.ready = 1;
                     sech2_edit_client_hello(s, pkt);
+                    sech5_make_ClientHelloInner(s);
+                    sech_debug_buffer("CHI client", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
+                    sech2_init_finished_mac(s);
+                    sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                 }
 
                 return 1;

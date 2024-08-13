@@ -63,6 +63,28 @@ static void tls13_pbuf(const char *msg,
 #endif
 
 #ifndef OPENSSL_NO_SECH
+
+int sech2_swap_finish_mac(SSL_CONNECTION *s)
+{
+    BIO_free(s->s3.handshake_buffer);
+    s->s3.handshake_buffer = NULL;
+    EVP_MD_CTX_free(s->s3.handshake_dgst);
+    s->s3.handshake_dgst = NULL;
+    s->s3.handshake_buffer = s->ext.sech_handshake_buffer;
+    s->s3.handshake_dgst = s->ext.sech_handshake_dgst;
+    s->ext.sech_handshake_buffer = NULL;
+    s->ext.sech_handshake_dgst = NULL;
+    s->ext.sech_dgst_swap_ready = 0;
+#ifdef SECH_DEBUG
+    OPENSSL_free(s->ext.normal_transcript_full);
+    s->ext.normal_transcript_full = s->ext.sech_transcript_full;
+    s->ext.normal_transcript_full_len = s->ext.sech_transcript_full_len;
+    s->ext.sech_transcript_full = NULL;
+    s->ext.sech_transcript_full_len = 0;
+#endif
+    return 1;
+}
+
 int sech2_init_finished_mac(SSL_CONNECTION *s)
 {
     BIO *buf = BIO_new(BIO_s_mem());
@@ -110,6 +132,15 @@ int sech2_finish_mac(SSL_CONNECTION *s, const unsigned char *buf, size_t len)
             return 0;
         }
     }
+
+#ifdef SECH_DEBUG
+    if(s->server) {
+        sech_debug_buffer("sech2 finish mac server", buf, len);
+    }
+    else {
+        sech_debug_buffer("sech2 finish mac client", buf, len);
+    }
+#endif
     return 1;
 }
 
@@ -622,29 +653,7 @@ int tls13_change_cipher_state(SSL_CONNECTION *s, int which)
             ((s->server && s->hello_retry_request != SSL_HRR_PENDING) ||
             (!s->server /* TODO client logic */))) {
         fprintf(stderr, "swapping finish mac [server==%i] [hrr==%i]\n", s->server, s->hello_retry_request);
-//         sech2_swap_finish_mac(s);
-// int sech2_swap_finish_mac(SSL_CONNECTION *s)
-// {
-    // ssl3_free_digest_list(s);
-    BIO_free(s->s3.handshake_buffer);
-    s->s3.handshake_buffer = NULL;
-    EVP_MD_CTX_free(s->s3.handshake_dgst);
-    s->s3.handshake_dgst = NULL;
-    s->s3.handshake_buffer = s->ext.sech_handshake_buffer;
-    s->s3.handshake_dgst = s->ext.sech_handshake_dgst;
-    s->ext.sech_handshake_buffer = NULL;
-    s->ext.sech_handshake_dgst = NULL;
-#ifdef SECH_DEBUG
-    OPENSSL_free(s->ext.normal_transcript_full);
-    s->ext.normal_transcript_full = s->ext.sech_transcript_full;
-    s->ext.normal_transcript_full_len = s->ext.sech_transcript_full_len;
-    s->ext.sech_transcript_full = NULL;
-    s->ext.sech_transcript_full_len = 0;
-#endif
-    
-//     return 1;
-// }
-        s->ext.sech_dgst_swap_ready = 0;
+        sech2_swap_finish_mac(s);
     }
 
     if (((which & SSL3_CC_CLIENT) && (which & SSL3_CC_WRITE))

@@ -34,6 +34,9 @@
 #ifndef OPENSSL_NO_ECH
 # include "../ech_local.h"
 #endif
+#ifndef OPENSSL_NO_SECH
+# include "../sech_local.h"
+#endif
 
 typedef struct {
   ASN1_TYPE *kxBlob;
@@ -2217,7 +2220,11 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                     fprintf(stderr, "hpke open SUCCESS\n");
                     unsigned char servername[17] = {0};
                     memcpy(servername, clear, clearlen);
+                    memcpy(s->ext.sech_plain_text.data, servername, 16);
                     s->ext.sech_peer_inner_servername = OPENSSL_strdup(servername);
+                    // TODO: make_ClientHelloInner
+                    sech5_make_ClientHelloInner(s);
+                    sech_debug_buffer("CHI server", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                     sech2_init_finished_mac(s);
                     sech2_finish_mac(s, s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                 }
@@ -3055,7 +3062,8 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
             }
             memcpy(s->ext.sech_hrr + 4, shbuf+4, shlen-4); // TODO keep header
         }
-        if(s->ext.sech_version == 2 && s->ext.sech_peer_inner_servername) {
+        if((s->ext.sech_version == 2 || s->ext.sech_version == 5)
+                && s->ext.sech_peer_inner_servername) {
 
             if(s->ext.sech_ClientHello2 && 
                 !sech2_finish_mac(s,
@@ -3064,7 +3072,7 @@ CON_FUNC_RETURN tls_construct_server_hello(SSL_CONNECTION *s, WPACKET *pkt)
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
                 return CON_FUNC_ERROR;
             }
-            {
+            { // TODO use PACKET update lengths function
                 size_t len = shlen - 4;
                 shbuf[1] = (len >> 16) & 0xFF;
                 shbuf[2] = (len >> 8) & 0xFF;

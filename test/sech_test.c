@@ -989,6 +989,7 @@ static int test_sech_hpke_roundtrip(int idx)
     SSL *clientssl = NULL, *serverssl = NULL;
     int clientstatus, serverstatus;
     char *cinner = NULL, *couter = NULL, *sinner = NULL, *souter = NULL;
+    char * inner_servername = "inner.com";
 
     /* read our pre-cooked ECH PEM file */
     echkeyfile = test_mk_file_path(certsdir, "echconfig.pem");
@@ -1003,6 +1004,7 @@ static int test_sech_hpke_roundtrip(int idx)
                                        TLS1_3_VERSION, TLS1_3_VERSION,
                                        &sctx, &cctx, cert, privkey)))
         goto end;
+    SSL_CTX_set_sech_inner_servername(cctx, inner_servername, 0); // len = 0 -> use strlen
     if (!TEST_true(SSL_CTX_set_sech_version(cctx, 5)))
         goto end;
     if (!TEST_true(SSL_CTX_set_sech_version(sctx, 5)))
@@ -1021,7 +1023,7 @@ static int test_sech_hpke_roundtrip(int idx)
     if (!TEST_true(create_ssl_connection(serverssl, clientssl,
                                          SSL_ERROR_NONE)))
         goto end;
-    serverstatus = SSL_ech_get_status(serverssl, &sinner, &souter);
+    serverstatus = SSL_get_sech_status(serverssl, &sinner, &souter);
     if (verbose)
         TEST_info("%s: server status %d, %s, %s",
                   __func__, serverstatus, sinner, souter);
@@ -1029,7 +1031,7 @@ static int test_sech_hpke_roundtrip(int idx)
         goto end;
     /* override cert verification */
     SSL_set_verify_result(clientssl, X509_V_OK);
-    clientstatus = SSL_ech_get_status(clientssl, &cinner, &couter);
+    clientstatus = SSL_get_sech_status(clientssl, &cinner, &couter);
     if (verbose)
         TEST_info("%s: client status %d, %s, %s",
                   __func__, clientstatus, cinner, couter);
