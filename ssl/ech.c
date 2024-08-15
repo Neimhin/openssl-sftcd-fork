@@ -3771,6 +3771,101 @@ err:
     return rv;
 }
 
+int sech5_calc_confirm(
+        SSL_CONNECTION *s,
+        unsigned char *acbuf,
+        const unsigned char *shbuf,
+        size_t shlen,
+        const char * inner_servername,
+        EVP_MD * md
+        )
+{
+    int rv = 0;
+    EVP_MD_CTX *ctx = NULL;
+    unsigned char *tbuf = NULL;
+    size_t tlen = 0, chend = 0;
+    unsigned char * shbuf_zeroed = OPENSSL_malloc(shlen);
+    unsigned char sech_transcript_hash[EVP_MAX_MD_SIZE];
+    unsigned int sech_transcript_hash_len = 0;
+    unsigned char sech_iv[12];
+    unsigned char inner_random[OSSL_SECH2_INNER_RANDOM_LEN];
+
+    {
+        char msg[1024] = {0};
+        sprintf(msg, "shbuf [server==%i]", s->server);
+    }
+    if(md == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR); // TODO: better error
+        goto err;
+    }
+
+    if(!shbuf_zeroed) return 0;
+    memcpy(shbuf_zeroed, shbuf, shlen);
+    if(!(SECH2_ACCEPT_CONFIRMATION_OFFSET + 8 < shlen)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    memset(shbuf_zeroed + 4 + SECH2_ACCEPT_CONFIRMATION_OFFSET, 0, 24); // replace acceptance signal location with 0s
+    if (sech2_make_transcript_buffer(
+                s,
+                shbuf_zeroed,
+                shlen,
+                &tbuf,
+                &tlen,
+                &chend,
+                &shlen) != 1)
+        goto err;
+
+    sech_transcript_hash_len = EVP_MD_size(md);
+    if ((ctx = EVP_MD_CTX_new()) == NULL
+        || EVP_DigestInit_ex(ctx, md, NULL) <= 0
+        || EVP_DigestUpdate(ctx, tbuf, tlen) <= 0
+        || EVP_DigestFinal_ex(ctx, sech_transcript_hash, &sech_transcript_hash_len) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    EVP_MD_CTX_free(ctx);
+    ctx = NULL;
+
+    memcpy(sech_iv, tbuf+2, 12);
+    if(!inner_servername) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    if(!s->ext.sech_inner_random) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    memcpy(inner_random, s->ext.sech_inner_random, OSSL_SECH2_INNER_RANDOM_LEN);
+    if(!ssl_sech2_calc_accept_confirmation_functional(
+        s,
+        sech_iv,
+        s->ext.sech_symmetric_key,
+        s->ext.sech_symmetric_key_len,
+        inner_servername,
+        inner_random,
+        sech_transcript_hash,
+        md, // which message digest algorithm to use (negotiated by server and client)
+        acbuf)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+    rv = 1;
+err:
+    fprintf(stderr, "server? (%i)\n", s->server);
+    fprintf(stderr, "tbuf:");
+    BIO_dump_fp(stderr, tbuf, tlen);
+    fprintf(stderr, "transcript hash: %i\n", s->server);
+    BIO_dump_fp(stderr, sech_transcript_hash, 48);
+    fprintf(stderr, "acbuf: %i\n", s->server);
+    BIO_dump_fp(stderr, acbuf, 24);
+
+    EVP_MD_CTX_free(ctx);
+    OPENSSL_free(tbuf);
+    OPENSSL_free(shbuf_zeroed);
+    return rv;
+}
+
 /*
     % md = TranscriptHash(ClientHello..ServerHello) // with last 16 bytes of ServerHello.random set to 0x00
     % padded_sech_IV = pad(sech_IV, HashLen)

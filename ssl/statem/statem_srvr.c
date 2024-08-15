@@ -2218,12 +2218,39 @@ static int tls_early_post_process_client_hello(SSL_CONNECTION *s)
                         aad, aad_len,
                         cipher, cipher_len) == 1) {
                     fprintf(stderr, "hpke open SUCCESS\n");
+                    // TODO: make sech_inner_random
+                    {
+                        const EVP_MD * md = ssl_handshake_md(s);
+                        if(md == NULL) {
+                            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                            goto err;                
+                        }
+                        sech_debug_buffer("shared secret", hpke_ctx->shared_secret, hpke_ctx->shared_secretlen); // TODO remove
+                        const unsigned char secret[EVP_MAX_MD_SIZE] = {0};
+                        memcpy(secret, hpke_ctx->shared_secret, hpke_ctx->shared_secretlen);
+                        const unsigned char * label = "sech inner random";
+                        size_t labellen = sizeof("sech inner random");
+                        const unsigned char * data = "";
+                        size_t datalen = 0;
+                        size_t outlen = 32;
+                        s->ext.sech_inner_random = OPENSSL_malloc(outlen);
+                        if(!s->ext.sech_inner_random) {
+                            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                            goto err;                
+                        }
+                        if(!tls13_hkdf_expand(s, secret, md, label, labellen,
+                                    data, datalen, s->ext.sech_inner_random, outlen, 0)) {
+                            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                            goto err;                
+                        }
+                        sech_debug_buffer("inner random", s->ext.sech_inner_random, 32);
+
+                    }
                     unsigned char servername[17] = {0};
                     memcpy(servername, clear, clearlen);
                     memcpy(s->ext.sech_plain_text.data, servername, 16);
                     s->ext.sech_peer_inner_servername = OPENSSL_strdup(servername);
                     sech_debug_buffer("strdup", servername, 17);
-                    // TODO: make_ClientHelloInner
                     sech5_make_ClientHelloInner(s);
                     sech_debug_buffer("CHI server", s->ext.sech_ClientHelloInner, s->ext.sech_ClientHelloInner_len);
                     sech2_init_finished_mac(s);

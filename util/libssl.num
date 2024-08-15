@@ -616,7 +616,9 @@ OSSL_ech_find_echconfigs                ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_CTX_ech_set_pad_sizes               ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_ech_set_pad_sizes                   ?	3_4_0	EXIST::FUNCTION:ECH
 SSL_ech_get_status                      ?	3_4_0	EXIST::FUNCTION:ECH
-SSL_CTX_set_sech_inner_servername       ?	3_4_0	EXIST::FUNCTION:ECH
-SSL_CTX_set_sech_symmetric_key          ?	3_4_0	EXIST::FUNCTION:ECH
-SSL_CTX_set_sech_version                ?	3_4_0	EXIST::FUNCTION:ECH
-SSL_get_sech_status                     ?	3_4_0	EXIST::FUNCTION:ECH
+SSL_CTX_set_sech_inner_servername       ?	3_4_0	EXIST::FUNCTION:SECH
+SSL_CTX_set_sech_symmetric_key          ?	4_4_0	EXIST::FUNCTION:SECH
+SSL_CTX_set_sech_version                ?	3_4_0	EXIST::FUNCTION:SECH
+SSL_get_sech_status                     ?	3_4_0	EXIST::FUNCTION:SECH
+SSL_CTX_sech_set1_sechconfig            ?	3_4_0	EXIST::FUNCTION:SECH
+SSL_CTX_sech_server_enable_file         ?	3_4_0	EXIST::FUNCTION:SECH
