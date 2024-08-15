@@ -1805,7 +1805,7 @@ MSG_PROCESS_RETURN tls_process_server_hello(SSL_CONNECTION *s, PACKET *pkt)
         if(s->ext.sech_version == 2)
         {
             // save hrr for sech_accept_confirmation signal
-            s->ext.sech_hrr = OPENSSL_malloc(shlen+4); // TODO free
+            s->ext.sech_hrr = OPENSSL_malloc(shlen+4);
             s->ext.sech_hrr_len = shlen + 4;
             if(s->ext.sech_hrr == NULL) {
                 SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
